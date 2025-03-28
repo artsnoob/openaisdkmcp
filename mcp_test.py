@@ -1,15 +1,19 @@
 import asyncio
 import os
-import shutil # For checking if npx exists
+import shutil # For checking if npx/uvx exists
 
 # Import necessary components from the Agents SDK
 from agents import Agent, Runner, trace
 from agents.mcp import MCPServerStdio
 
-# Ensure npx is available in the system path
+# Ensure npx and uvx are available in the system path
 if not shutil.which("npx"):
     raise RuntimeError(
         "npx command not found. Please install Node.js and npm from https://nodejs.org/"
+    )
+if not shutil.which("uvx"):
+    raise RuntimeError(
+        "uvx command not found. Please ensure uvx (part of uv) is installed and in your PATH. See https://github.com/astral-sh/uv"
     )
 
 async def main():
@@ -22,7 +26,7 @@ async def main():
     # Configure the filesystem MCP server to run via npx
     # It will be started as a subprocess managed by MCPServerStdio
     # We point it to the 'sample_mcp_files' directory we created.
-    mcp_server_stdio = MCPServerStdio(
+    mcp_server_filesystem = MCPServerStdio(
         name="Filesystem Server via npx", # A name for tracing/logging
         params={
             "command": "npx",
@@ -33,19 +37,30 @@ async def main():
         cache_tools_list=True,
     )
 
+    # Configure the fetch MCP server to run via uvx
+    mcp_server_fetch = MCPServerStdio(
+        name="Fetch Server via uvx",
+        params={
+            "command": "uvx",
+            "args": ["mcp-server-fetch"],
+        },
+        cache_tools_list=True, # Caching is usually fine for fetch tools too
+    )
+
+
     # --- 2. Set up the Agent ---
 
     # Create an Agent instance. Crucially, pass the MCP server instance
     # to the `mcp_servers` list. This makes the tools provided by the
     # server available to the agent.
     agent = Agent(
-        name="FileAgent",
+        name="FileFetchAgent",
         instructions=(
-            "You are an agent that can interact with a local filesystem. "
-            "Use the available tools (like list_directory, read_file) "
-            "to answer questions based ONLY on the files provided."
+            "You are an agent that can interact with a local filesystem and fetch web content. "
+            "Use the available tools (like list_directory, read_file, fetch) "
+            "to answer questions based on local files or web resources."
         ),
-        mcp_servers=[mcp_server_stdio],
+        mcp_servers=[mcp_server_filesystem, mcp_server_fetch], # Add both servers
         # We'll use a default OpenAI model here just for the agent logic,
         # the core interaction is via the MCP tools.
         model="gpt-4o-mini",
@@ -53,10 +68,10 @@ async def main():
 
     # --- 3. Run the Agent Interactively ---
 
-    # The MCPServerStdio needs to be connected before use.
-    # The 'async with' block handles connect() and cleanup() automatically.
-    async with mcp_server_stdio as server:
-        print("MCP Server connected. Starting interactive chat...")
+    # The MCPServerStdio instances need to be connected before use.
+    # Nesting 'async with' blocks handles connect() and cleanup() for both.
+    async with mcp_server_filesystem as fs_server, mcp_server_fetch as fetch_server:
+        print("MCP Servers (Filesystem, Fetch) connected. Starting interactive chat...")
         print("Type 'quit' or 'exit' to end the session.")
 
         # Optional: Wrap the entire interactive session in a trace
@@ -70,12 +85,10 @@ async def main():
                         break
 
                     # Run the agent with the user's input
-                    # The Runner should handle context persistence across calls
+                    # The Runner handles context persistence across calls
                     result = await Runner.run(
                         starting_agent=agent,
                         input=user_input,
-                        # Context is implicitly managed by the Runner/Agent instance
-                        # context=None, # No need to manage context manually here
                     )
 
                     # Print the agent's final response
@@ -89,7 +102,7 @@ async def main():
                     print(f"\nAn error occurred: {e}")
                     # Optionally, decide if the loop should continue or break on error
 
-    print("\nChat session complete. MCP Server disconnected.")
+    print("\nChat session complete. MCP Servers disconnected.")
 
 if __name__ == "__main__":
     # Use try-except to catch potential issues during async run, like initial connection errors
