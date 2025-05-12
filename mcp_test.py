@@ -246,17 +246,6 @@ async def main():
         cache_tools_list=True, # Caching is likely safe here too
     )
 
-    # Configure the RSS Feed MCP server
-    logger.info("Configuring RSS Feed MCP server...")
-    mcp_server_rss = MCPServerStdio(
-        name="RSS Feed Server", # A name for tracing/logging
-        params={
-            "command": "node", # Assuming node is in PATH
-            "args": [os.path.join(script_dir, "rss-feed-server", "rss-feed-server", "build", "rss-feed-server", "index.js")],
-        },
-        cache_tools_list=True,
-    )
-
     # Test each server individually
     logger.info("Testing individual server connections...")
     
@@ -264,7 +253,7 @@ async def main():
     fs_success = await test_single_server("Filesystem Server", mcp_server_filesystem)
     fetch_success = await test_single_server("Fetch Server", mcp_server_fetch)
     brave_success = await test_single_server("Brave Search Server", mcp_server_brave)
-    rss_success = await test_single_server("RSS Feed Server", mcp_server_rss)
+    # rss_success = await test_single_server("RSS Feed Server", mcp_server_rss) # Removed RSS
     
     # Only proceed with servers that connected successfully
     working_servers = []
@@ -274,8 +263,8 @@ async def main():
         working_servers.append(mcp_server_fetch)
     if brave_success:
         working_servers.append(mcp_server_brave)
-    if rss_success:
-        working_servers.append(mcp_server_rss)
+    # if rss_success: # Removed RSS
+    #     working_servers.append(mcp_server_rss)
     if python_success:
         working_servers.append(mcp_server_python)
     
@@ -283,7 +272,7 @@ async def main():
         logger.error("No MCP servers connected successfully. Exiting.")
         return
     
-    logger.info(f"Successfully connected to {len(working_servers)} out of 5 servers.")
+    logger.info(f"Successfully connected to {len(working_servers)} out of 4 servers.") # Updated server count
 
 
     # --- 2. Set up the Agent ---
@@ -291,13 +280,32 @@ async def main():
     
     # Create an Agent instance with only the working servers
     agent = Agent(
-        name="FileFetchSearchRssCodeExecutorAgent", # Updated agent name
+        name="FileFetchSearchCodeExecutorAgent", # Updated agent name
         instructions=(
-            "You are an agent that can interact with a local filesystem, fetch web content, perform web searches using Brave Search, get RSS feed content, and execute code using the MCP Code Executor. "
+            "You are an agent that can interact with a local filesystem, fetch web content, perform web searches using Brave Search, and execute code using the MCP Code Executor. "
             f"When using filesystem tools, always save new files to the directory: {samples_dir} "
             "This is the only directory the filesystem MCP server has access to. "
-            "Use the available tools (like list_directory, read_file, write_file, fetch, brave_search, get_rss_feed, execute_code, install_dependencies, check_installed_packages) "
-            "to answer questions based on local files, web resources, current events, RSS feeds, or by executing code."
+            "Use the available tools (like list_directory, read_file, write_file, fetch, brave_search, execute_code, install_dependencies, check_installed_packages) "
+            "to answer questions based on local files, web resources, current events, or by executing code.\n\n"
+            "IMPORTANT GUIDELINES FOR WRITING PYTHON CODE:\n"
+            "1. Robustness: When generating Python scripts, especially those interacting with external data (like RSS feeds or APIs), ensure the code is robust. This includes:\n"
+            "   - Checking for `None` values or unexpected data types before attempting to access attributes or dictionary keys.\n"
+            "   - Using `try-except` blocks to gracefully handle potential errors during data fetching, parsing, or processing (e.g., network issues, malformed data, missing keys).\n"
+            "   - Using the `.get()` method for dictionary access with default values (e.g., `data.get('key', 'default_value')`) to prevent `KeyError`.\n"
+            "   - Validating the structure of the data received (e.g., checking if a list is empty before accessing elements, or if an object is of the expected type).\n"
+            "2. Clarity: Write clear and well-commented code.\n"
+            "3. Dependencies: If your script requires specific Python packages, use the `install_dependencies` tool first if you are unsure they are installed. Common packages like `feedparser`, `requests`, `beautifulsoup4` are pre-installed in the execution environment.\n\n"
+            "SPECIFIC INSTRUCTIONS FOR `feedparser` (RSS Feeds):\n"
+            "   - When parsing an RSS feed with `feedparser.parse(url)`, the result contains `feed.entries`.\n"
+            "   - Iterate through `feed.entries`. Each `article` in this list should be a `feedparser.FeedParserDict` object (which behaves like a dictionary).\n"
+            "   - **Crucially, before accessing attributes like `article.title`, `article.link`, or `article.published`, first verify that the `article` object is indeed dictionary-like. You can do this by checking `if hasattr(article, 'get'):`**\n"
+            "   - If it is, use the `.get()` method for safe access: \n"
+            "     `title = article.get('title', 'No Title Available')`\n"
+            "     `link = article.get('link', '#')`\n"
+            "     `published = article.get('published', article.get('updated', 'No Date Available'))` (try multiple common date fields)\n"
+            "   - If an `article` is not dictionary-like (e.g., it's a string or None), skip it or log a warning.\n"
+            "   - Also, check `feed.bozo` after parsing. If `feed.bozo` is true, the feed might be malformed, and `feed.bozo_exception` will contain details. Handle this gracefully.\n"
+            "   - Ensure all data written to files (like Markdown) is explicitly converted to strings if necessary (e.g., `str(title)`)."
         ),
         mcp_servers=working_servers,  # Only use servers that connected successfully
         # We'll use a default OpenAI model here just for the agent logic,
@@ -325,7 +333,7 @@ async def main():
         # Connect all working servers
         await connect_servers()
         
-        print(f"{Colors.OKGREEN}MCP Servers connected ({len(working_servers)} of 5). Starting interactive chat...{Colors.ENDC}")
+        print(f"{Colors.OKGREEN}MCP Servers connected ({len(working_servers)} of 4). Starting interactive chat...{Colors.ENDC}") # Updated server count
         print(f"{Colors.OKCYAN}Type 'quit' or 'exit' to end the session.{Colors.ENDC}")
 
         conversation_history_items = [] # Initialize conversation history
@@ -372,10 +380,20 @@ async def main():
                                             # For code execution tools, extract and log more details
                                             if tool_name in ['execute_code', 'install_dependencies', 'check_installed_packages']:
                                                 if hasattr(output_item, 'arguments') and output_item.arguments:
-                                                    tool_details.append({
-                                                        'tool': tool_name,
-                                                        'arguments': output_item.arguments
-                                                    })
+                                                    try:
+                                                        import json
+                                                        parsed_args = json.loads(output_item.arguments) # Parse JSON string to dict
+                                                        tool_details.append({
+                                                            'tool': tool_name,
+                                                            'arguments': parsed_args # Store the parsed dict
+                                                        })
+                                                    except json.JSONDecodeError:
+                                                        logger.error(f"Failed to parse tool arguments for {tool_name}: {output_item.arguments}")
+                                                        # Store raw string or a placeholder if parsing fails, to avoid breaking later logic
+                                                        tool_details.append({
+                                                            'tool': tool_name,
+                                                            'arguments': {'raw_arguments_error': output_item.arguments}
+                                                        })
                             
                             # Check for tool responses
                             if hasattr(response, 'content') and isinstance(response.content, list):
