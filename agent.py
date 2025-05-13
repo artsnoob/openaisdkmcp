@@ -11,7 +11,7 @@ from agents import Runner, trace # Agent and MCPServerStdio will be imported via
 
 # Import from our new modules
 from mcp_utils import Colors, setup_colored_logger, install_basic_packages, ensure_venv_exists
-from mcp_server_config import configure_and_test_servers
+from mcp_server_config import configure_servers # UPDATED IMPORT
 from mcp_agent_setup import setup_agent
 
 # Set up logging using the utility function
@@ -63,39 +63,60 @@ async def main():
             logger.warning("Failed to install basic packages. Some code execution may fail.")
             print(f"{Colors.LOG_WARNING}Failed to install basic packages. Some code execution may fail.{Colors.ENDC}")
 
-    # --- 2. Configure and Test MCP Servers ---
-    working_servers = await configure_and_test_servers(logger, script_dir, samples_dir)
-    if not working_servers:
-        logger.error("No MCP servers available. Exiting application.")
-        print(f"{Colors.LOG_ERROR}No MCP servers available. Exiting application.{Colors.ENDC}")
+    # --- 2. Configure MCP Servers ---
+    configured_server_instances = await configure_servers(logger, script_dir, samples_dir)
+    
+    # --- 2a. Connect to Configured Servers ---
+    successfully_connected_servers = []
+    if configured_server_instances:
+        logger.info(f"Attempting to connect to {len(configured_server_instances)} configured MCP server(s)...")
+        for server_instance in configured_server_instances:
+            try:
+                await server_instance.connect()
+                logger.info(f"Successfully connected to {server_instance.name}.")
+                print(f"{Colors.LOG_INFO}Successfully connected to {server_instance.name}.{Colors.ENDC}")
+                successfully_connected_servers.append(server_instance)
+            except Exception as e:
+                logger.error(f"Failed to connect to {server_instance.name}: {e}")
+                print(f"{Colors.LOG_ERROR}Failed to connect to {server_instance.name}: {e}{Colors.ENDC}")
+                # Attempt to clean up if connection failed partway
+                try:
+                    await server_instance.cleanup()
+                except Exception as cleanup_e:
+                    logger.error(f"Error during cleanup of failed server {server_instance.name}: {cleanup_e}")
+    
+    if not successfully_connected_servers:
+        logger.error("No MCP servers connected successfully. Exiting application.")
+        print(f"{Colors.LOG_ERROR}No MCP servers connected successfully. Exiting application.{Colors.ENDC}")
         return # Exit if no servers are working
+    
+    logger.info(f"Total successfully connected servers: {len(successfully_connected_servers)} out of {len(configured_server_instances)} configured.")
+    print(f"{Colors.LOG_INFO}Total successfully connected servers: {len(successfully_connected_servers)} out of {len(configured_server_instances)} configured. Starting interactive chat...{Colors.ENDC}")
 
     # --- 3. Set up the Agent ---
-    agent = setup_agent(logger, working_servers, samples_dir)
+    agent = setup_agent(logger, successfully_connected_servers, samples_dir) # Use successfully_connected_servers
     
     # --- 4. Run the Agent Interactively ---
     # logger.info("Starting interactive session...") # Reduced verbosity
     
     # Context manager for server connections
     @asynccontextmanager # Decorate with asynccontextmanager
-    async def manage_server_connections(servers_to_manage):
-        for server in servers_to_manage:
-            await server.connect()
-        # logger.info(f"All {len(servers_to_manage)} working MCP servers connected.") # Reduced verbosity, covered by print below
-        print(f"{Colors.LOG_INFO}All {len(servers_to_manage)} working MCP servers connected. Starting interactive chat...{Colors.ENDC}")
+    async def manage_server_connections(servers_to_manage): # servers_to_manage are already connected
+        # Connections are now handled before this context manager is entered.
+        # logger.info(f"All {len(servers_to_manage)} working MCP servers are already connected.") # Redundant with previous log
         try:
             yield # This is where the interactive loop will run
         finally:
-            # logger.info("Cleaning up server connections...") # Reduced verbosity
+            logger.info(f"Cleaning up {len(servers_to_manage)} server connection(s)...")
             for server in servers_to_manage:
                 try:
                     await server.cleanup()
-                    # logger.info(f"Successfully cleaned up server: {server.name}") # Reduced verbosity
+                    logger.info(f"Successfully cleaned up server: {server.name}")
                 except Exception as e:
                     logger.error(f"Error cleaning up server {server.name}: {e}")
-            # logger.info("All server cleanups attempted.") # Reduced verbosity
+            logger.info("All server cleanups attempted.")
 
-    async with manage_server_connections(working_servers):
+    async with manage_server_connections(successfully_connected_servers): # Use successfully_connected_servers
         print(f"{Colors.SYSTEM_INFO}Type 'quit' or 'exit' to end the session.{Colors.ENDC}")
         conversation_history_items = []
 
