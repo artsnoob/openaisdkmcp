@@ -9,12 +9,18 @@ from dotenv import load_dotenv
 
 # Define ANSI color codes
 class Colors:
-    HEADER = '\033[95m'
-    OKBLUE = '\033[94m'
-    OKCYAN = '\033[96m'
-    OKGREEN = '\033[92m'
-    WARNING = '\033[93m'
-    FAIL = '\033[91m'
+    HEADER = '\033[95m'      # Magenta - For major section titles (e.g., initial setup, code execution blocks)
+    USER_PROMPT = '\033[92m' # Bright Green - For "You:" prompt
+    AGENT_PROMPT = '\033[94m'# Bright Blue - For "Agent:" prompt
+    AGENT_MESSAGE = '\033[96m'# Bright Cyan - For agent's text responses and displayed code blocks
+    TOOL_INFO = '\033[93m'   # Bright Yellow - For "[Tools Used: ...]" and headers like "--- Code Executed ---"
+    CODE_OUTPUT = '\033[92m' # Bright Green - For successful output from code execution
+    CODE_ERROR = '\033[91m'    # Bright Red - For errors from code execution
+    SYSTEM_INFO = '\033[94m' # Bright Blue - For general script info like "Type 'quit'", "Exiting chat"
+    LOG_NAME = '\033[94m'      # Bright Blue - For logger names (e.g., __main__)
+    LOG_INFO = '\033[92m'      # Bright Green - For INFO level logs and general success messages
+    LOG_WARNING = '\033[93m'   # Bright Yellow - For WARNING level logs and operational warnings
+    LOG_ERROR = '\033[91m'     # Bright Red - For ERROR level logs and critical failure messages
     ENDC = '\033[0m'
     BOLD = '\033[1m'
     UNDERLINE = '\033[4m'
@@ -22,17 +28,17 @@ class Colors:
 # Custom Formatter for logging
 class ColoredFormatter(logging.Formatter):
     LEVEL_COLORS = {
-        logging.DEBUG: Colors.OKBLUE,
-        logging.INFO: Colors.OKGREEN,
-        logging.WARNING: Colors.WARNING,
-        logging.ERROR: Colors.FAIL,
-        logging.CRITICAL: Colors.FAIL + Colors.BOLD,
+        logging.DEBUG: Colors.LOG_INFO, # Using LOG_INFO for DEBUG for now
+        logging.INFO: Colors.LOG_INFO,
+        logging.WARNING: Colors.LOG_WARNING,
+        logging.ERROR: Colors.LOG_ERROR,
+        logging.CRITICAL: Colors.LOG_ERROR + Colors.BOLD,
     }
 
     def format(self, record):
         color = self.LEVEL_COLORS.get(record.levelno, Colors.ENDC)
         record.levelname = f"{color}{record.levelname}{Colors.ENDC}"
-        record.name = f"{Colors.OKBLUE}{record.name}{Colors.ENDC}"
+        record.name = f"{Colors.LOG_NAME}{record.name}{Colors.ENDC}"
         # Apply color to the whole message for simplicity here, or customize further
         # record.msg = f"{color}{record.msg}{Colors.ENDC}" # This would color the whole message
         return super().format(record)
@@ -171,8 +177,8 @@ async def main():
     
     logger.info(f"Sample files directory: {samples_dir}")
     # Print the absolute path to verify it's correct
-    print(f"{Colors.HEADER}Using sample files directory: {samples_dir}{Colors.ENDC}")
-    
+    print(f"{Colors.HEADER}Using sample files directory: {samples_dir}{Colors.ENDC}") # HEADER for major setup info
+
     if not os.path.exists(samples_dir):
         logger.warning(f"Sample directory does not exist: {samples_dir}")
         os.makedirs(samples_dir, exist_ok=True)
@@ -187,17 +193,17 @@ async def main():
     
     if not venv_success:
         logger.error("Failed to create or verify virtual environment. Code execution may fail.")
-        print(f"{Colors.FAIL}Failed to create or verify virtual environment. Code execution may fail.{Colors.ENDC}")
+        print(f"{Colors.LOG_ERROR}Failed to create or verify virtual environment. Code execution may fail.{Colors.ENDC}")
     elif venv_created:
         # If we created a new venv, install basic packages
         logger.info("New virtual environment created, installing basic packages...")
         if install_basic_packages(venv_path):
             logger.info("Basic packages installed successfully in the new virtual environment.")
-            print(f"{Colors.OKGREEN}Basic packages installed successfully in the new virtual environment.{Colors.ENDC}")
+            print(f"{Colors.LOG_INFO}Basic packages installed successfully in the new virtual environment.{Colors.ENDC}")
         else:
             logger.warning("Failed to install basic packages. Some code execution may fail.")
-            print(f"{Colors.WARNING}Failed to install basic packages. Some code execution may fail.{Colors.ENDC}")
-    
+            print(f"{Colors.LOG_WARNING}Failed to install basic packages. Some code execution may fail.{Colors.ENDC}")
+
     # Configure the MCP Code Executor server
     logger.info("Configuring MCP Code Executor server...")
     mcp_server_python = MCPServerStdio(
@@ -344,8 +350,8 @@ async def main():
         # Connect all working servers
         await connect_servers()
         
-        print(f"{Colors.OKGREEN}MCP Servers connected ({len(working_servers)} of 4). Starting interactive chat...{Colors.ENDC}") # Updated server count
-        print(f"{Colors.OKCYAN}Type 'quit' or 'exit' to end the session.{Colors.ENDC}")
+        print(f"{Colors.LOG_INFO}MCP Servers connected ({len(working_servers)} of 4). Starting interactive chat...{Colors.ENDC}") # Updated server count
+        print(f"{Colors.SYSTEM_INFO}Type 'quit' or 'exit' to end the session.{Colors.ENDC}")
 
         conversation_history_items = [] # Initialize conversation history
 
@@ -354,9 +360,9 @@ async def main():
             while True:
                 try:
                     # Get user input
-                    user_input_text = input(f"\n{Colors.BOLD}You: {Colors.ENDC}")
+                    user_input_text = input(f"\n{Colors.BOLD}{Colors.USER_PROMPT}You: {Colors.ENDC}")
                     if user_input_text.lower() in ["quit", "exit"]:
-                        print(f"{Colors.WARNING}Exiting chat.{Colors.ENDC}")
+                        print(f"{Colors.SYSTEM_INFO}Exiting chat.{Colors.ENDC}")
                         break
 
                     # Prepare the input for the current turn by appending the new user message to the history
@@ -417,64 +423,64 @@ async def main():
                                             
                                             # Ensure response_data is a dictionary before accessing keys
                                             if isinstance(response_data, dict):
-                                                # If this is a code execution response, log it
-                                                if 'status' in response_data and ('output' in response_data or 'error' in response_data):
-                                                    print(f"\n{Colors.HEADER}--- Code Execution Result ---{Colors.ENDC}")
-                                                    print(f"{Colors.BOLD}Status:{Colors.ENDC} {response_data['status']}")
+                                                    # If this is a code execution response, log it
+                                                    if 'status' in response_data and ('output' in response_data or 'error' in response_data):
+                                                        print(f"\n{Colors.HEADER}--- Code Execution Result ---{Colors.ENDC}") # Magenta header for block
+                                                        print(f"{Colors.BOLD}Status:{Colors.ENDC} {response_data['status']}")
                                                     
-                                                    if 'file_path' in response_data:
-                                                        print(f"{Colors.BOLD}File:{Colors.ENDC} {response_data['file_path']}")
+                                                        if 'file_path' in response_data:
+                                                            print(f"{Colors.BOLD}File:{Colors.ENDC} {response_data['file_path']}")
                                                     
-                                                    if 'output' in response_data:
-                                                        print(f"{Colors.BOLD}Output:{Colors.ENDC}")
-                                                        print(f"{Colors.OKGREEN}{response_data['output']}{Colors.ENDC}")
+                                                        if 'output' in response_data:
+                                                            print(f"{Colors.BOLD}Output:{Colors.ENDC}")
+                                                            print(f"  {Colors.CODE_OUTPUT}{response_data['output']}{Colors.ENDC}") # Indented Green output
                                                     
-                                                    if 'error' in response_data:
-                                                        print(f"{Colors.BOLD}Error:{Colors.ENDC}")
-                                                        print(f"{Colors.FAIL}{response_data['error']}{Colors.ENDC}")
+                                                        if 'error' in response_data:
+                                                            print(f"{Colors.BOLD}Error:{Colors.ENDC}")
+                                                            print(f"  {Colors.CODE_ERROR}{response_data['error']}{Colors.ENDC}") # Indented Red error
                                                     
-                                                    print(f"{Colors.HEADER}---------------------------{Colors.ENDC}")
+                                                        print(f"{Colors.HEADER}---------------------------{Colors.ENDC}")
                                             else:
                                                 # Handle case where response_data is not a dictionary
                                                 print(f"\n{Colors.HEADER}--- Code Execution Result ---{Colors.ENDC}")
                                                 print(f"{Colors.BOLD}Response:{Colors.ENDC}")
-                                                print(f"{Colors.OKGREEN}{response_data}{Colors.ENDC}")
+                                                print(f"  {Colors.CODE_OUTPUT}{response_data}{Colors.ENDC}") # Indented Green output
                                                 print(f"{Colors.HEADER}---------------------------{Colors.ENDC}")
                                         except Exception:
                                             # Not JSON or not a code execution response, ignore
                                             pass
 
                     if tool_names_used:
-                        print(f"\n{Colors.OKCYAN}[Tools Used: {', '.join(sorted(list(tool_names_used)))}]{Colors.ENDC}")
+                        print(f"\n{Colors.TOOL_INFO}[Tools Used: {', '.join(sorted(list(tool_names_used)))}]{Colors.ENDC}") # Yellow for tool summary
                     
                     # Log detailed tool usage for debugging
                     for detail in tool_details:
                         if detail['tool'] == 'execute_code' and 'code' in detail['arguments']:
-                            print(f"\n{Colors.HEADER}--- Code Executed ---{Colors.ENDC}")
-                            print(f"{Colors.OKBLUE}{detail['arguments']['code']}{Colors.ENDC}")
-                            print(f"{Colors.HEADER}-------------------{Colors.ENDC}")
+                            print(f"\n{Colors.TOOL_INFO}--- Code Executed ---{Colors.ENDC}") # Yellow header
+                            print(f"  {Colors.AGENT_MESSAGE}{detail['arguments']['code']}{Colors.ENDC}") # Indented Cyan for code block
+                            print(f"{Colors.TOOL_INFO}-------------------{Colors.ENDC}")
                         elif detail['tool'] == 'install_dependencies' and 'packages' in detail['arguments']:
-                            print(f"\n{Colors.HEADER}--- Packages Installed ---{Colors.ENDC}")
-                            print(f"{Colors.OKBLUE}{', '.join(detail['arguments']['packages'])}{Colors.ENDC}")
-                            print(f"{Colors.HEADER}------------------------{Colors.ENDC}")
+                            print(f"\n{Colors.TOOL_INFO}--- Packages Installed ---{Colors.ENDC}") # Yellow header
+                            print(f"  {Colors.AGENT_MESSAGE}{', '.join(detail['arguments']['packages'])}{Colors.ENDC}") # Indented Cyan for package list
+                            print(f"{Colors.TOOL_INFO}------------------------{Colors.ENDC}")
                     # --- End Extract and Print ---
 
                     # Print the agent's final response
-                    print(f"\n{Colors.BOLD}Agent:{Colors.ENDC}")
-                    print(f"{Colors.OKBLUE}{result.final_output}{Colors.ENDC}")
+                    print(f"\n{Colors.BOLD}{Colors.AGENT_PROMPT}Agent: {Colors.ENDC}") # Bold Blue "Agent:"
+                    print(f"{Colors.AGENT_MESSAGE}{result.final_output}{Colors.ENDC}") # Cyan for agent message
 
                 except KeyboardInterrupt:
-                    print(f"\n{Colors.WARNING}Exiting chat due to interrupt.{Colors.ENDC}")
+                    print(f"\n{Colors.SYSTEM_INFO}Exiting chat due to interrupt.{Colors.ENDC}") # Blue for system info
                     break
                 except Exception as e:
-                    print(f"\n{Colors.FAIL}An error occurred: {e}{Colors.ENDC}")
+                    print(f"\n{Colors.LOG_ERROR}An error occurred: {e}{Colors.ENDC}") # Red for error
                     # Optionally, decide if the loop should continue or break on error
     except Exception as e:
         logger.error(f"Error during interactive session: {e}")
     finally:
         # Clean up servers
         await cleanup_servers()
-        print(f"\n{Colors.OKGREEN}Chat session complete. MCP Servers disconnected.{Colors.ENDC}")
+        print(f"\n{Colors.LOG_INFO}Chat session complete. MCP Servers disconnected.{Colors.ENDC}") # Green for success/info
 
 if __name__ == "__main__":
     # Use try-except to catch potential issues during async run, like initial connection errors
@@ -482,4 +488,4 @@ if __name__ == "__main__":
         asyncio.run(main())
     except Exception as e:
         logger.exception(f"An error occurred during script execution: {e}")
-        print(f"{Colors.FAIL}An error occurred during script execution: {e}{Colors.ENDC}")
+        print(f"{Colors.LOG_ERROR}An error occurred during script execution: {e}{Colors.ENDC}") # Red for critical script error
