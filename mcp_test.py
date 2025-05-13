@@ -5,6 +5,7 @@ import logging
 import sys
 import venv
 import subprocess
+from dotenv import load_dotenv
 
 # Define ANSI color codes
 class Colors:
@@ -62,6 +63,9 @@ logging.getLogger("openai").setLevel(logging.WARNING)
 # Import necessary components from the Agents SDK
 from agents import Agent, Runner, trace
 from agents.mcp import MCPServerStdio
+
+# Load environment variables from .env file
+load_dotenv()
 
 # Ensure npx and uvx are available in the system path
 if not shutil.which("npx"):
@@ -204,7 +208,8 @@ async def main():
             "env": {
                 "CODE_STORAGE_DIR": samples_dir,
                 "ENV_TYPE": "venv",
-                "VENV_PATH": os.path.join(samples_dir, "venv")
+                "VENV_PATH": os.path.join(samples_dir, "venv"),
+                "NODE_NO_WARNINGS": "1" # Suppress Node experimental warnings
             }
         },
         cache_tools_list=True,
@@ -217,6 +222,9 @@ async def main():
         params={
             "command": "npx",
             "args": ["-y", "@modelcontextprotocol/server-filesystem", samples_dir],
+            "env": {
+                "NODE_NO_WARNINGS": "1" # Suppress Node experimental warnings
+            }
         },
         # Caching can speed things up if the tool list doesn't change often.
         # For the filesystem server, it's generally safe.
@@ -241,7 +249,10 @@ async def main():
         params={
             "command": "npx",
             "args": ["-y", "@modelcontextprotocol/server-brave-search"],
-            "env": {"BRAVE_API_KEY": "BSAj4ws7fq7C9gy7K5_9g-y7MPX_gF4"},
+            "env": {
+                "BRAVE_API_KEY": os.getenv("BRAVE_API_KEY"),
+                "NODE_NO_WARNINGS": "1" # Suppress Node experimental warnings
+            },
         },
         cache_tools_list=True, # Caching is likely safe here too
     )
