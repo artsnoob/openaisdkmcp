@@ -1,151 +1,99 @@
-# OpenAI Agents SDK with MCP Filesystem, Fetch, and Brave Search Example
+# MCP Agent Interaction Project
 
-This project demonstrates how to use the OpenAI Agents SDK with multiple Model Context Protocol (MCP) servers. Specifically, it uses:
-1.  The official [filesystem MCP server](https://github.com/modelcontextprotocol/servers/tree/main/src/filesystem) run locally via `npx` to allow an agent to interact with local files.
-2.  The [fetch MCP server](https://github.com/modelcontextprotocol/servers/tree/main/src/fetch) run locally via `uvx` to allow an agent to fetch content from web URLs.
-3.  The official [Brave Search MCP server](https://github.com/modelcontextprotocol/servers/tree/main/src/brave-search) run locally via `npx` to allow an agent to perform web searches using the Brave Search API.
+## Overview
 
-The agent can leverage tools from all three servers to answer questions based on local files, web resources, or current information from the web.
+This project implements an interactive AI agent that leverages several Model Context Protocol (MCP) servers to perform a variety of tasks. Users can interact with the agent via a command-line interface, instructing it to fetch web content, perform web searches, execute Python code, and interact with the local filesystem.
+
+The project is designed to be a testbed and demonstration of how an AI agent can be augmented with external tools through MCP servers.
+
+## Features
+
+*   **Interactive Chat Interface**: Allows users to communicate with the AI agent in a conversational manner.
+*   **MCP Server Integration**: Connects to and utilizes multiple MCP servers for extended capabilities:
+    *   **Code Execution**: Executes Python code in a sandboxed environment.
+    *   **Filesystem Operations**: Reads and writes files to a designated local directory.
+    *   **Web Content Fetching**: Retrieves content from URLs.
+    *   **Web Search**: Performs web searches using the Brave Search API.
+*   **Robust Agent Instructions**: The agent is configured with detailed guidelines for generating Python code, emphasizing error handling and safe data access.
+*   **Environment Setup**: Automatically creates necessary directories and a Python virtual environment.
+*   **Dependency Management**: Installs basic Python packages into the virtual environment if it's newly created.
+*   **Clear Logging**: Provides colored console output for system messages, agent responses, tool usage, and code execution results.
 
 ## Prerequisites
 
-Before you begin, ensure you have the following installed:
+Before running the project, ensure you have the following installed:
 
-1.  **Python:** Version 3.9 or later.
-2.  **Node.js and npm:** Required for using `npx` to run the MCP filesystem server. Download from [nodejs.org](https://nodejs.org/).
-3.  **uv:** Required for using `uvx` to run the MCP fetch server. Install from [astral.sh/uv](https://astral.sh/uv).
-4.  **OpenAI API Key:** The Agents SDK requires an OpenAI API key. Get one from [platform.openai.com](https://platform.openai.com/).
-5.  **Brave Search API Key:** Required for the Brave Search MCP server. Get one from [api.search.brave.com](https://api.search.brave.com/).
+*   **Python 3.x**
+*   **Node.js and npm**: Required for `npx`, which is used to run some MCP servers (Filesystem, Brave Search). Download from [https://nodejs.org/](https://nodejs.org/).
+*   **uv**: Required for `uvx`, which is used to run the Fetch MCP server. Installation instructions can be found at [https://github.com/astral-sh/uv](https://github.com/astral-sh/uv).
+*   **Brave Search API Key**: If you intend to use the web search functionality, you'll need an API key from Brave Search.
 
-## Setup Instructions
+## Setup
 
-1.  **Clone or Create Project:**
-    If you have cloned a repository containing this `README.md` and `mcp_test.py`, navigate into that directory. Otherwise, create a new project directory:
-    ```bash
-    mkdir agent_mcp_test
-    cd agent_mcp_test
-    # Make sure mcp_test.py is in this directory
+1.  **Environment Variables**:
+    Create a file named `.env` in the project's root directory and add your Brave Search API key:
+    ```env
+    BRAVE_API_KEY=your_brave_api_key_here
     ```
 
-2.  **Create and Activate Virtual Environment:**
-    *   On macOS/Linux:
-        ```bash
-        python3 -m venv .venv
-        source .venv/bin/activate
-        ```
-    *   On Windows (Command Prompt):
-        ```bash
-        python -m venv .venv
-        .\.venv\Scripts\activate
-        ```
-    *   On Windows (PowerShell):
-        ```bash
-        python -m venv .venv
-        .\.venv\Scripts\Activate.ps1
-        ```
-    Your command prompt should now be prefixed with `(.venv)`.
-
-3.  **Install Dependencies:**
-    Install the OpenAI Agents SDK using pip:
+2.  **Python Dependencies**:
+    Install the required Python packages. While a `requirements.txt` is not explicitly provided in the current file listing, the project uses libraries such as `python-dotenv` and the `agents` SDK. You may need to install these manually if not already present:
     ```bash
-    pip install openai-agents
+    pip3 install python-dotenv
+    # pip3 install <agents_sdk_package_name> # Replace with the actual package name for the 'agents' SDK
     ```
+    The script also attempts to install `feedparser`, `requests`, and `beautifulsoup4` into its local venv if needed.
 
-4.  **Create Sample Directory and File:**
-    The MCP filesystem server needs a directory to operate on.
-    ```bash
-    mkdir sample_mcp_files
-    echo "Hello from the MCP file!" > sample_mcp_files/hello.txt
-    echo "Another test file." > sample_mcp_files/test.txt
-    ```
-    *(The Python script assumes this directory is named `sample_mcp_files` and is located in the same directory as the script)*
+## Running the Project
 
-5.  **Set OpenAI API Key:**
-    Export your OpenAI API key as an environment variable.
-    *   On macOS/Linux:
-        ```bash
-        export OPENAI_API_KEY='sk-YourSecretKeyHere'
-        ```
-    *   On Windows (Command Prompt):
-        ```bash
-        set OPENAI_API_KEY=sk-YourSecretKeyHere
-        ```
-    *   On Windows (PowerShell):
-        ```bash
-        $env:OPENAI_API_KEY = 'sk-YourSecretKeyHere'
-        ```
-    Replace `sk-YourSecretKeyHere` with your actual API key.
-
-6.  **Set Brave Search API Key:**
-    Export your Brave Search API key as an environment variable.
-    *   On macOS/Linux:
-        ```bash
-        export BRAVE_API_KEY='YourBraveApiKeyHere'
-        ```
-    *   On Windows (Command Prompt):
-        ```bash
-        set BRAVE_API_KEY=YourBraveApiKeyHere
-        ```
-    *   On Windows (PowerShell):
-        ```bash
-        $env:BRAVE_API_KEY = 'YourBraveApiKeyHere'
-        ```
-    Replace `YourBraveApiKeyHere` with your actual Brave Search API key.
-
-## Running the Example
-
-Make sure your virtual environment is activated and both the `OPENAI_API_KEY` and `BRAVE_API_KEY` environment variables are set.
-
-Execute the Python script:
+To start the interactive agent session, run the `agent.py` script:
 
 ```bash
-python mcp_test.py
+python3 agent.py
 ```
 
-The script will start the filesystem, fetch, and Brave Search MCP servers as subprocesses. You'll see output indicating the servers are connected, and then you can interact with the agent in your terminal. The script will also print the names of the MCP tools used by the agent before displaying the final answer.
+This will:
+1.  Set up necessary directories (e.g., `sample_mcp_files` and a `venv` within it).
+2.  Configure and test connections to the MCP servers.
+3.  Initialize the AI agent.
+4.  Start an interactive command-line session where you can chat with the agent.
 
-## Example Interactions
+Type `quit` or `exit` to end the session.
 
-**Using the Filesystem Server:**
+## Project Structure
 
-```
-MCP Servers (Filesystem, Fetch, Brave Search) connected. Starting interactive chat...
-Type 'quit' or 'exit' to end the session.
+*   `agent.py`: The main executable script that initializes and runs the agent and interactive session.
+*   `mcp_agent_setup.py`: Defines the AI agent's configuration, including its instructions and personality.
+*   `mcp_server_config.py`: Configures the MCP servers (Code Executor, Filesystem, Fetch, Brave Search) and tests their connections.
+*   `mcp_utils.py`: (Not read, but assumed to contain utility functions like colored logging and venv setup based on imports).
+*   `.env`: Stores environment variables like API keys (you need to create this).
+*   `mcp_code_executor/`: Contains the source code and build for the Node.js-based MCP Code Executor server.
+*   `sample_mcp_files/`: Directory used by the Filesystem MCP server and for storing generated code and its virtual environment. This directory is created automatically if it doesn't exist.
 
-You: What is in the file hello.txt?
+## MCP Servers Used
 
-[Tools Used: read_file]
+The project utilizes the following MCP servers:
 
-Agent:
-The file hello.txt contains the text "Hello from the MCP file!".
-```
+*   **MCP Code Executor**:
+    *   **Implementation**: Node.js application (located in `mcp_code_executor/`).
+    *   **Purpose**: Executes Python code snippets provided by the agent. Manages a Python virtual environment for code execution.
+*   **Filesystem Server**:
+    *   **Implementation**: Run via `npx @modelcontextprotocol/server-filesystem`.
+    *   **Purpose**: Allows the agent to read from and write to files within the `sample_mcp_files/` directory.
+*   **Fetch Server**:
+    *   **Implementation**: Run via `uvx mcp-server-fetch`.
+    *   **Purpose**: Enables the agent to fetch content from web URLs.
+*   **Brave Search Server**:
+    *   **Implementation**: Run via `npx @modelcontextprotocol/server-brave-search`.
+    *   **Purpose**: Allows the agent to perform web searches using the Brave Search API.
 
-**Using the Fetch Server:**
+## Agent Capabilities
 
-```
-You: Fetch the content of https://example.com
+The AI agent is designed to:
 
-[Tools Used: fetch]
-
-Agent:
-Fetching content from https://example.com...
-<!doctype html>
-<html>
-<head>
-    <title>Example Domain</title>
-    ... (rest of the HTML content) ...
-</html>
-```
-
-**Using the Brave Search Server:**
-
-```
-You: What is the capital of France?
-
-[Tools Used: brave_web_search]
-
-Agent:
-The capital of France is Paris.
-```
-
-Type `quit` or `exit` to stop the script and the MCP server subprocesses.
+*   Understand and respond to user queries in a conversational manner.
+*   Generate and execute Python code to solve problems or perform tasks.
+*   Adhere to specific guidelines for writing robust Python code, including error handling and safe data access (especially for RSS feeds).
+*   Interact with the local filesystem (read/write files in `sample_mcp_files/`).
+*   Fetch information from websites.
+*   Perform web searches to find current information or answer questions.
