@@ -37,12 +37,18 @@ Before running the project, ensure you have the following installed:
     ```
 
 2.  **Python Dependencies**:
-    Install the required Python packages. While a `requirements.txt` is not explicitly provided in the current file listing, the project uses libraries such as `python-dotenv` and the `agents` SDK. You may need to install these manually if not already present:
+    Install the required Python packages using the `requirements.txt` file:
     ```bash
-    pip3 install python-dotenv
-    # pip3 install <agents_sdk_package_name> # Replace with the actual package name for the 'agents' SDK
+    pip3 install -r requirements.txt
     ```
-    The script also attempts to install `feedparser`, `requests`, and `beautifulsoup4` into its local venv if needed.
+    This will install `openai-agents` (the OpenAI Agents SDK) and `python-dotenv`.
+    The `openai-agents` SDK is used for defining the agent, its interactions, and managing the communication with MCP servers.
+    The script also attempts to install `feedparser`, `requests`, and `beautifulsoup4` into its local venv if needed for specific agent tasks.
+
+## Core Libraries Used
+
+*   **OpenAI Agents SDK (`openai-agents`)**: This SDK provides the core framework for creating and running the AI agent. It handles the agent's lifecycle, tool integration (MCP servers), and the processing of user interactions. Key components used from this SDK include `Agent` for defining the agent and `Runner` for executing the interactive session.
+*   **Python-dotenv**: Used to load environment variables (like API keys) from a `.env` file.
 
 ## Running the Project
 
