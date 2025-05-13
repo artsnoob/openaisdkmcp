@@ -3,489 +3,191 @@ import os
 import shutil # For checking if npx/uvx exists
 import logging
 import sys
-import venv
-import subprocess
 from dotenv import load_dotenv
+from contextlib import asynccontextmanager # Import asynccontextmanager
 
-# Define ANSI color codes
-class Colors:
-    HEADER = '\033[95m'      # Magenta - For major section titles (e.g., initial setup, code execution blocks)
-    USER_PROMPT = '\033[92m' # Bright Green - For "You:" prompt
-    AGENT_PROMPT = '\033[94m'# Bright Blue - For "Agent:" prompt
-    AGENT_MESSAGE = '\033[96m'# Bright Cyan - For agent's text responses and displayed code blocks
-    TOOL_INFO = '\033[93m'   # Bright Yellow - For "[Tools Used: ...]" and headers like "--- Code Executed ---"
-    CODE_OUTPUT = '\033[92m' # Bright Green - For successful output from code execution
-    CODE_ERROR = '\033[91m'    # Bright Red - For errors from code execution
-    SYSTEM_INFO = '\033[94m' # Bright Blue - For general script info like "Type 'quit'", "Exiting chat"
-    LOG_NAME = '\033[94m'      # Bright Blue - For logger names (e.g., __main__)
-    LOG_INFO = '\033[92m'      # Bright Green - For INFO level logs and general success messages
-    LOG_WARNING = '\033[93m'   # Bright Yellow - For WARNING level logs and operational warnings
-    LOG_ERROR = '\033[91m'     # Bright Red - For ERROR level logs and critical failure messages
-    ENDC = '\033[0m'
-    BOLD = '\033[1m'
-    UNDERLINE = '\033[4m'
+# Import necessary components from the Agents SDK
+from agents import Runner, trace # Agent and MCPServerStdio will be imported via new modules
 
-# Custom Formatter for logging
-class ColoredFormatter(logging.Formatter):
-    LEVEL_COLORS = {
-        logging.DEBUG: Colors.LOG_INFO, # Using LOG_INFO for DEBUG for now
-        logging.INFO: Colors.LOG_INFO,
-        logging.WARNING: Colors.LOG_WARNING,
-        logging.ERROR: Colors.LOG_ERROR,
-        logging.CRITICAL: Colors.LOG_ERROR + Colors.BOLD,
-    }
+# Import from our new modules
+from mcp_utils import Colors, setup_colored_logger, install_basic_packages, ensure_venv_exists
+from mcp_server_config import configure_and_test_servers
+from mcp_agent_setup import setup_agent
 
-    def format(self, record):
-        color = self.LEVEL_COLORS.get(record.levelno, Colors.ENDC)
-        record.levelname = f"{color}{record.levelname}{Colors.ENDC}"
-        record.name = f"{Colors.LOG_NAME}{record.name}{Colors.ENDC}"
-        # Apply color to the whole message for simplicity here, or customize further
-        # record.msg = f"{color}{record.msg}{Colors.ENDC}" # This would color the whole message
-        return super().format(record)
-
-# Set up logging
-logger = logging.getLogger(__name__)
-logger.setLevel(logging.INFO)  # Keep our script's logs at INFO level
-
-# Create console handler and set level to debug
-ch = logging.StreamHandler()
-ch.setLevel(logging.INFO) # Or logging.DEBUG for more verbose output
-
-# Create formatter
-formatter = ColoredFormatter('%(asctime)s - %(name)s - %(levelname)s - %(message)s')
-
-# Add formatter to ch
-ch.setFormatter(formatter)
-
-# Add ch to logger
-logger.addHandler(ch)
-logger.propagate = False # Prevent duplicate logs if root logger is also configured
+# Set up logging using the utility function
+logger = setup_colored_logger(__name__)
 
 # Disable httpx logging which is causing the messages during typing
 logging.getLogger("httpx").setLevel(logging.WARNING)
 # Disable OpenAI API logging
 logging.getLogger("openai").setLevel(logging.WARNING)
 
-# Import necessary components from the Agents SDK
-from agents import Agent, Runner, trace
-from agents.mcp import MCPServerStdio
-
 # Load environment variables from .env file
 load_dotenv()
 
 # Ensure npx and uvx are available in the system path
 if not shutil.which("npx"):
-    raise RuntimeError(
-        "npx command not found. Please install Node.js and npm from https://nodejs.org/"
-    )
+    logger.error("npx command not found. Please install Node.js and npm from https://nodejs.org/")
+    raise RuntimeError("npx command not found.")
 if not shutil.which("uvx"):
-    raise RuntimeError(
-        "uvx command not found. Please ensure uvx (part of uv) is installed and in your PATH. See https://github.com/astral-sh/uv"
-    )
-
-def install_basic_packages(venv_path):
-    """Install basic packages in the virtual environment."""
-    logger.info("Installing basic packages in the virtual environment...")
-    
-    # Determine the pip executable path based on the platform
-    if os.name == 'nt':  # Windows
-        pip_path = os.path.join(venv_path, "Scripts", "pip.exe")
-    else:  # Unix/Linux/Mac
-        pip_path = os.path.join(venv_path, "bin", "pip")
-    
-    # Check if pip exists
-    if not os.path.exists(pip_path):
-        logger.error(f"Pip not found at {pip_path}")
-        return False
-    
-    # Basic packages to install
-    packages = ["feedparser", "requests", "beautifulsoup4", "pandas", "matplotlib"]
-    
-    try:
-        # Install packages
-        cmd = [pip_path, "install"] + packages
-        logger.info(f"Running command: {' '.join(cmd)}")
-        
-        # Run the command and capture output
-        process = subprocess.Popen(
-            cmd, 
-            stdout=subprocess.PIPE, 
-            stderr=subprocess.PIPE,
-            text=True
-        )
-        
-        # Print output in real-time
-        stdout, stderr = process.communicate()
-        
-        if stdout:
-            logger.info(f"Pip install output: {stdout}")
-        if stderr:
-            logger.warning(f"Pip install warnings/errors: {stderr}")
-        
-        if process.returncode != 0:
-            logger.error(f"Failed to install packages. Return code: {process.returncode}")
-            return False
-        
-        logger.info("Basic packages installed successfully")
-        return True
-    except Exception as e:
-        logger.error(f"Error installing packages: {e}")
-        return False
-
-def ensure_venv_exists(venv_path):
-    """Create a virtual environment if it doesn't exist."""
-    created_new = False
-    
-    if os.path.exists(venv_path) and os.path.isdir(venv_path):
-        # Check if it's a valid venv by looking for key files
-        if os.path.exists(os.path.join(venv_path, "Scripts", "activate")) or \
-           os.path.exists(os.path.join(venv_path, "bin", "activate")):
-            logger.info(f"Virtual environment already exists at {venv_path}")
-            return True, False  # exists, not newly created
-    
-    # Create the virtual environment
-    logger.info(f"Creating virtual environment at {venv_path}...")
-    try:
-        venv.create(venv_path, with_pip=True)
-        logger.info(f"Virtual environment created successfully at {venv_path}")
-        created_new = True
-        return True, created_new  # success, newly created
-    except Exception as e:
-        logger.error(f"Failed to create virtual environment: {e}")
-        return False, False  # failed, not created
-
-async def test_single_server(server_name, server_instance):
-    """Test a single MCP server connection."""
-    logger.info(f"Testing connection to {server_name}...")
-    try:
-        # We can't set timeout directly as it's not supported
-        async with server_instance:
-            logger.info(f"Successfully connected to {server_name}!")
-            return True
-    except Exception as e:
-        logger.error(f"Failed to connect to {server_name}: {e}")
-        return False
+    logger.error("uvx command not found. Please ensure uvx (part of uv) is installed and in your PATH. See https://github.com/astral-sh/uv")
+    raise RuntimeError("uvx command not found.")
 
 async def main():
-    # --- 1. Set up the MCP Server ---
-
-    # Get the absolute path to the directory containing sample files
-    # Use an explicit path to ensure files are always saved in the correct location
-    samples_dir = os.path.join(os.path.dirname(os.path.abspath(__file__)), "sample_mcp_files")
-    # Ensure this is the absolute path: C:\Users\milanb\code\openaisdkmcp\sample_mcp_files
+    # --- 1. Initial Setup ---
+    script_dir = os.path.dirname(os.path.abspath(__file__))
+    samples_dir = os.path.join(script_dir, "sample_mcp_files")
     samples_dir = os.path.abspath(samples_dir)
     
-    logger.info(f"Sample files directory: {samples_dir}")
-    # Print the absolute path to verify it's correct
-    print(f"{Colors.HEADER}Using sample files directory: {samples_dir}{Colors.ENDC}") # HEADER for major setup info
+    # logger.info(f"Sample files directory: {samples_dir}") # Reduced verbosity
+    print(f"{Colors.HEADER}Using sample files directory: {samples_dir}{Colors.ENDC}") # Keep this one for clarity
 
     if not os.path.exists(samples_dir):
-        logger.warning(f"Sample directory does not exist: {samples_dir}")
+        logger.warning(f"Sample directory does not exist: {samples_dir}, creating it.")
         os.makedirs(samples_dir, exist_ok=True)
-        logger.info(f"Created sample directory: {samples_dir}")
+        # logger.info(f"Created sample directory: {samples_dir}") # Reduced verbosity
 
-    # Use script directory instead of current_dir which is no longer defined
-    script_dir = os.path.dirname(os.path.abspath(__file__))
-    
-    # Ensure the virtual environment exists
+    # Ensure the virtual environment exists and install packages if new
     venv_path = os.path.join(samples_dir, "venv")
-    venv_success, venv_created = ensure_venv_exists(venv_path)
+    venv_success, venv_created = ensure_venv_exists(logger, venv_path)
     
     if not venv_success:
         logger.error("Failed to create or verify virtual environment. Code execution may fail.")
         print(f"{Colors.LOG_ERROR}Failed to create or verify virtual environment. Code execution may fail.{Colors.ENDC}")
     elif venv_created:
-        # If we created a new venv, install basic packages
-        logger.info("New virtual environment created, installing basic packages...")
-        if install_basic_packages(venv_path):
+        # logger.info("New virtual environment created, installing basic packages...") # Reduced verbosity
+        if install_basic_packages(logger, venv_path): # Pass logger to install_basic_packages
             logger.info("Basic packages installed successfully in the new virtual environment.")
-            print(f"{Colors.LOG_INFO}Basic packages installed successfully in the new virtual environment.{Colors.ENDC}")
+            # print(f"{Colors.LOG_INFO}Basic packages installed successfully in the new virtual environment.{Colors.ENDC}") # Reduced verbosity
         else:
             logger.warning("Failed to install basic packages. Some code execution may fail.")
             print(f"{Colors.LOG_WARNING}Failed to install basic packages. Some code execution may fail.{Colors.ENDC}")
 
-    # Configure the MCP Code Executor server
-    logger.info("Configuring MCP Code Executor server...")
-    mcp_server_python = MCPServerStdio(
-        name="MCP Code Executor", # A name for tracing/logging
-        params={
-            "command": "node", # Assuming node is in PATH
-            "args": [os.path.join(script_dir, "mcp_code_executor", "build", "index.js")],
-            "env": {
-                "CODE_STORAGE_DIR": samples_dir,
-                "ENV_TYPE": "venv",
-                "VENV_PATH": os.path.join(samples_dir, "venv"),
-                "NODE_NO_WARNINGS": "1" # Suppress Node experimental warnings
-            }
-        },
-        cache_tools_list=True,
-    )
-    
-    # Configure the filesystem MCP server to run via npx
-    logger.info("Configuring Filesystem MCP server...")
-    mcp_server_filesystem = MCPServerStdio(
-        name="Filesystem Server via npx", # A name for tracing/logging
-        params={
-            "command": "npx",
-            "args": ["-y", "@modelcontextprotocol/server-filesystem", samples_dir],
-            "env": {
-                "NODE_NO_WARNINGS": "1" # Suppress Node experimental warnings
-            }
-        },
-        # Caching can speed things up if the tool list doesn't change often.
-        # For the filesystem server, it's generally safe.
-        cache_tools_list=True,
-    )
-
-    # Configure the fetch MCP server to run via uvx
-    logger.info("Configuring Fetch MCP server...")
-    mcp_server_fetch = MCPServerStdio(
-        name="Fetch Server via uvx",
-        params={
-            "command": "uvx",
-            "args": ["mcp-server-fetch", "--ignore-robots-txt"],
-        },
-        cache_tools_list=True, # Caching is usually fine for fetch tools too
-    )
-
-    # Configure the Brave Search MCP server
-    logger.info("Configuring Brave Search MCP server...")
-    mcp_server_brave = MCPServerStdio(
-        name="Brave Search Server via npx",
-        params={
-            "command": "npx",
-            "args": ["-y", "@modelcontextprotocol/server-brave-search"],
-            "env": {
-                "BRAVE_API_KEY": os.getenv("BRAVE_API_KEY"),
-                "NODE_NO_WARNINGS": "1" # Suppress Node experimental warnings
-            },
-        },
-        cache_tools_list=True, # Caching is likely safe here too
-    )
-
-    # Test each server individually
-    logger.info("Testing individual server connections...")
-    
-    python_success = await test_single_server("MCP Code Executor", mcp_server_python)
-    fs_success = await test_single_server("Filesystem Server", mcp_server_filesystem)
-    fetch_success = await test_single_server("Fetch Server", mcp_server_fetch)
-    brave_success = await test_single_server("Brave Search Server", mcp_server_brave)
-    # rss_success = await test_single_server("RSS Feed Server", mcp_server_rss) # Removed RSS
-    
-    # Only proceed with servers that connected successfully
-    working_servers = []
-    if fs_success:
-        working_servers.append(mcp_server_filesystem)
-    if fetch_success:
-        working_servers.append(mcp_server_fetch)
-    if brave_success:
-        working_servers.append(mcp_server_brave)
-    # if rss_success: # Removed RSS
-    #     working_servers.append(mcp_server_rss)
-    if python_success:
-        working_servers.append(mcp_server_python)
-    
+    # --- 2. Configure and Test MCP Servers ---
+    working_servers = await configure_and_test_servers(logger, script_dir, samples_dir)
     if not working_servers:
-        logger.error("No MCP servers connected successfully. Exiting.")
-        return
-    
-    logger.info(f"Successfully connected to {len(working_servers)} out of 4 servers.") # Updated server count
+        logger.error("No MCP servers available. Exiting application.")
+        print(f"{Colors.LOG_ERROR}No MCP servers available. Exiting application.{Colors.ENDC}")
+        return # Exit if no servers are working
 
-
-    # --- 2. Set up the Agent ---
-    logger.info("Setting up the Agent...")
+    # --- 3. Set up the Agent ---
+    agent = setup_agent(logger, working_servers, samples_dir)
     
-    # Create an Agent instance with only the working servers
-    agent = Agent(
-        name="FileFetchSearchCodeExecutorAgent", # Updated agent name
-        instructions=(
-            "You are an agent that can interact with a local filesystem, fetch web content, perform web searches using Brave Search, and execute code using the MCP Code Executor. "
-            f"When using filesystem tools, always save new files to the directory: {samples_dir} "
-            "This is the only directory the filesystem MCP server has access to. "
-            "Use the available tools (like list_directory, read_file, write_file, fetch, brave_search, execute_code, install_dependencies, check_installed_packages) "
-            "to answer questions based on local files, web resources, current events, or by executing code.\n\n"
-            "IMPORTANT GUIDELINES FOR WRITING PYTHON CODE:\n"
-            "1. Robustness: When generating Python scripts, especially those interacting with external data (like RSS feeds or APIs), ensure the code is robust. This includes:\n"
-            "   - Checking for `None` values or unexpected data types before attempting to access attributes or dictionary keys.\n"
-            "   - Using `try-except` blocks to gracefully handle potential errors during data fetching, parsing, or processing (e.g., network issues, malformed data, missing keys).\n"
-            "   - Using the `.get()` method for dictionary access with default values (e.g., `data.get('key', 'default_value')`) to prevent `KeyError`.\n"
-            "   - Validating the structure of the data received (e.g., checking if a list is empty before accessing elements, or if an object is of the expected type).\n"
-            "2. Clarity: Write clear and well-commented code.\n"
-            "3. Dependencies: If your script requires specific Python packages, use the `install_dependencies` tool first if you are unsure they are installed. Common packages like `feedparser`, `requests`, `beautifulsoup4` are pre-installed in the execution environment.\n\n"
-            "SPECIFIC INSTRUCTIONS FOR `feedparser` (RSS Feeds):\n"
-            "   - When parsing an RSS feed with `feedparser.parse(url)`, the result contains `feed.entries`.\n"
-            "   - Iterate through `feed.entries`. Each `article` in this list should be a `feedparser.FeedParserDict` object (which behaves like a dictionary).\n"
-            "   - **Crucially, before accessing attributes like `article.title`, `article.link`, or `article.published`, first verify that the `article` object is indeed dictionary-like. You can do this by checking `if hasattr(article, 'get'):`**\n"
-            "   - If it is, use the `.get()` method for safe access: \n"
-            "     `title = article.get('title', 'No Title Available')`\n"
-            "     `link = article.get('link', '#')`\n"
-            "     `published = article.get('published', article.get('updated', 'No Date Available'))` (try multiple common date fields)\n"
-            "   - If an `article` is not dictionary-like (e.g., it's a string or None), skip it or log a warning.\n"
-            "   - Also, check `feed.bozo` after parsing. If `feed.bozo` is true, the feed might be malformed, and `feed.bozo_exception` will contain details. Handle this gracefully.\n"
-            "   - Ensure all data written to files (like Markdown) is explicitly converted to strings if necessary (e.g., `str(title)`)."
-        ),
-        mcp_servers=working_servers,  # Only use servers that connected successfully
-        # We'll use a default OpenAI model here just for the agent logic,
-        # the core interaction is via the MCP tools.
-        model="gpt-4o-mini",
-    )
-
-    # --- 3. Run the Agent Interactively ---
-    logger.info("Starting interactive session...")
+    # --- 4. Run the Agent Interactively ---
+    # logger.info("Starting interactive session...") # Reduced verbosity
     
-    # Create a context manager for all working servers
-    async def connect_servers():
-        for server in working_servers:
+    # Context manager for server connections
+    @asynccontextmanager # Decorate with asynccontextmanager
+    async def manage_server_connections(servers_to_manage):
+        for server in servers_to_manage:
             await server.connect()
-        return working_servers
-        
-    async def cleanup_servers():
-        for server in working_servers:
-            try:
-                await server.cleanup()
-            except Exception as e:
-                logger.error(f"Error cleaning up server {server.name}: {e}")
-    
-    try:
-        # Connect all working servers
-        await connect_servers()
-        
-        print(f"{Colors.LOG_INFO}MCP Servers connected ({len(working_servers)} of 4). Starting interactive chat...{Colors.ENDC}") # Updated server count
+        # logger.info(f"All {len(servers_to_manage)} working MCP servers connected.") # Reduced verbosity, covered by print below
+        print(f"{Colors.LOG_INFO}All {len(servers_to_manage)} working MCP servers connected. Starting interactive chat...{Colors.ENDC}")
+        try:
+            yield # This is where the interactive loop will run
+        finally:
+            # logger.info("Cleaning up server connections...") # Reduced verbosity
+            for server in servers_to_manage:
+                try:
+                    await server.cleanup()
+                    # logger.info(f"Successfully cleaned up server: {server.name}") # Reduced verbosity
+                except Exception as e:
+                    logger.error(f"Error cleaning up server {server.name}: {e}")
+            # logger.info("All server cleanups attempted.") # Reduced verbosity
+
+    async with manage_server_connections(working_servers):
         print(f"{Colors.SYSTEM_INFO}Type 'quit' or 'exit' to end the session.{Colors.ENDC}")
+        conversation_history_items = []
 
-        conversation_history_items = [] # Initialize conversation history
-
-        # Optional: Wrap the entire interactive session in a trace
-        with trace("MCP Interactive Session"): # Updated trace name
+        with trace("MCP Interactive Session"):
             while True:
                 try:
-                    # Get user input
                     user_input_text = input(f"\n{Colors.BOLD}{Colors.USER_PROMPT}You: {Colors.ENDC}")
                     if user_input_text.lower() in ["quit", "exit"]:
                         print(f"{Colors.SYSTEM_INFO}Exiting chat.{Colors.ENDC}")
                         break
 
-                    # Prepare the input for the current turn by appending the new user message to the history
                     current_turn_input = conversation_history_items + [{"role": "user", "content": user_input_text}]
-
-                    # Run the agent with the full conversation history for this turn
-                    result = await Runner.run(
-                        starting_agent=agent,
-                        input=current_turn_input,
-                    )
-
-                    # Update conversation_history_items for the next turn using the result
+                    result = await Runner.run(starting_agent=agent, input=current_turn_input)
                     conversation_history_items = result.to_input_list()
 
-                    # --- Extract and Print Tool Usage and Details from raw_responses ---
+                    # --- Extract and Print Tool Usage and Details ---
                     tool_names_used = set()
                     tool_details = []
                     
                     if hasattr(result, 'raw_responses') and result.raw_responses:
                         for response in result.raw_responses:
-                            # Check if the response object has an 'output' attribute and it's a list
                             if hasattr(response, 'output') and isinstance(response.output, list):
                                 for output_item in response.output:
-                                    # Check if the item looks like a tool call
-                                    if hasattr(output_item, 'name') and \
-                                       hasattr(output_item, 'type') and \
-                                       getattr(output_item, 'type') == 'function_call':
+                                    if hasattr(output_item, 'name') and hasattr(output_item, 'type') and getattr(output_item, 'type') == 'function_call':
                                         tool_name = getattr(output_item, 'name', None)
                                         if tool_name:
                                             tool_names_used.add(str(tool_name))
-                                            
-                                            # For code execution tools, extract and log more details
                                             if tool_name in ['execute_code', 'install_dependencies', 'check_installed_packages']:
                                                 if hasattr(output_item, 'arguments') and output_item.arguments:
                                                     try:
                                                         import json
-                                                        parsed_args = json.loads(output_item.arguments) # Parse JSON string to dict
-                                                        tool_details.append({
-                                                            'tool': tool_name,
-                                                            'arguments': parsed_args # Store the parsed dict
-                                                        })
+                                                        parsed_args = json.loads(output_item.arguments)
+                                                        tool_details.append({'tool': tool_name, 'arguments': parsed_args})
                                                     except json.JSONDecodeError:
                                                         logger.error(f"Failed to parse tool arguments for {tool_name}: {output_item.arguments}")
-                                                        # Store raw string or a placeholder if parsing fails, to avoid breaking later logic
-                                                        tool_details.append({
-                                                            'tool': tool_name,
-                                                            'arguments': {'raw_arguments_error': output_item.arguments}
-                                                        })
+                                                        tool_details.append({'tool': tool_name, 'arguments': {'raw_arguments_error': output_item.arguments}})
                             
-                            # Check for tool responses
                             if hasattr(response, 'content') and isinstance(response.content, list):
                                 for content_item in response.content:
                                     if hasattr(content_item, 'text') and content_item.text:
                                         try:
-                                            # Try to parse as JSON to extract structured information
                                             import json
                                             response_data = json.loads(content_item.text)
-                                            
-                                            # Ensure response_data is a dictionary before accessing keys
                                             if isinstance(response_data, dict):
-                                                    # If this is a code execution response, log it
-                                                    if 'status' in response_data and ('output' in response_data or 'error' in response_data):
-                                                        print(f"\n{Colors.HEADER}--- Code Execution Result ---{Colors.ENDC}") # Magenta header for block
-                                                        print(f"{Colors.BOLD}Status:{Colors.ENDC} {response_data['status']}")
-                                                    
-                                                        if 'file_path' in response_data:
-                                                            print(f"{Colors.BOLD}File:{Colors.ENDC} {response_data['file_path']}")
-                                                    
-                                                        if 'output' in response_data:
-                                                            print(f"{Colors.BOLD}Output:{Colors.ENDC}")
-                                                            print(f"  {Colors.CODE_OUTPUT}{response_data['output']}{Colors.ENDC}") # Indented Green output
-                                                    
-                                                        if 'error' in response_data:
-                                                            print(f"{Colors.BOLD}Error:{Colors.ENDC}")
-                                                            print(f"  {Colors.CODE_ERROR}{response_data['error']}{Colors.ENDC}") # Indented Red error
-                                                    
-                                                        print(f"{Colors.HEADER}---------------------------{Colors.ENDC}")
-                                            else:
-                                                # Handle case where response_data is not a dictionary
-                                                print(f"\n{Colors.HEADER}--- Code Execution Result ---{Colors.ENDC}")
-                                                print(f"{Colors.BOLD}Response:{Colors.ENDC}")
-                                                print(f"  {Colors.CODE_OUTPUT}{response_data}{Colors.ENDC}") # Indented Green output
-                                                print(f"{Colors.HEADER}---------------------------{Colors.ENDC}")
+                                                if 'status' in response_data and ('output' in response_data or 'error' in response_data):
+                                                    print(f"\n{Colors.HEADER}--- Code Execution Result ---{Colors.ENDC}")
+                                                    print(f"{Colors.BOLD}Status:{Colors.ENDC} {response_data['status']}")
+                                                    if 'file_path' in response_data: print(f"{Colors.BOLD}File:{Colors.ENDC} {response_data['file_path']}")
+                                                    if 'output' in response_data: print(f"{Colors.BOLD}Output:{Colors.ENDC}\n  {Colors.CODE_OUTPUT}{response_data['output']}{Colors.ENDC}")
+                                                    if 'error' in response_data: print(f"{Colors.BOLD}Error:{Colors.ENDC}\n  {Colors.CODE_ERROR}{response_data['error']}{Colors.ENDC}")
+                                                    print(f"{Colors.HEADER}---------------------------{Colors.ENDC}")
+                                            else: # Non-dict JSON response
+                                                print(f"\n{Colors.HEADER}--- Tool Response ---{Colors.ENDC}")
+                                                print(f"  {Colors.CODE_OUTPUT}{response_data}{Colors.ENDC}")
+                                                print(f"{Colors.HEADER}-------------------{Colors.ENDC}")
                                         except Exception:
-                                            # Not JSON or not a code execution response, ignore
-                                            pass
+                                            pass # Not JSON or not a code execution response
 
                     if tool_names_used:
-                        print(f"\n{Colors.TOOL_INFO}[Tools Used: {', '.join(sorted(list(tool_names_used)))}]{Colors.ENDC}") # Yellow for tool summary
+                        print(f"\n{Colors.TOOL_INFO}[Tools Used: {', '.join(sorted(list(tool_names_used)))}]{Colors.ENDC}")
                     
-                    # Log detailed tool usage for debugging
                     for detail in tool_details:
                         if detail['tool'] == 'execute_code' and 'code' in detail['arguments']:
-                            print(f"\n{Colors.TOOL_INFO}--- Code Executed ---{Colors.ENDC}") # Yellow header
-                            print(f"  {Colors.AGENT_MESSAGE}{detail['arguments']['code']}{Colors.ENDC}") # Indented Cyan for code block
+                            print(f"\n{Colors.TOOL_INFO}--- Code Executed ---{Colors.ENDC}")
+                            print(f"  {Colors.AGENT_MESSAGE}{detail['arguments']['code']}{Colors.ENDC}")
                             print(f"{Colors.TOOL_INFO}-------------------{Colors.ENDC}")
                         elif detail['tool'] == 'install_dependencies' and 'packages' in detail['arguments']:
-                            print(f"\n{Colors.TOOL_INFO}--- Packages Installed ---{Colors.ENDC}") # Yellow header
-                            print(f"  {Colors.AGENT_MESSAGE}{', '.join(detail['arguments']['packages'])}{Colors.ENDC}") # Indented Cyan for package list
+                            print(f"\n{Colors.TOOL_INFO}--- Packages Installed ---{Colors.ENDC}")
+                            print(f"  {Colors.AGENT_MESSAGE}{', '.join(detail['arguments']['packages'])}{Colors.ENDC}")
                             print(f"{Colors.TOOL_INFO}------------------------{Colors.ENDC}")
                     # --- End Extract and Print ---
 
-                    # Print the agent's final response
-                    print(f"\n{Colors.BOLD}{Colors.AGENT_PROMPT}Agent: {Colors.ENDC}") # Bold Blue "Agent:"
-                    print(f"{Colors.AGENT_MESSAGE}{result.final_output}{Colors.ENDC}") # Cyan for agent message
+                    print(f"\n{Colors.BOLD}{Colors.AGENT_PROMPT}Agent: {Colors.ENDC}")
+                    print(f"{Colors.AGENT_MESSAGE}{result.final_output}{Colors.ENDC}")
 
                 except KeyboardInterrupt:
-                    print(f"\n{Colors.SYSTEM_INFO}Exiting chat due to interrupt.{Colors.ENDC}") # Blue for system info
+                    print(f"\n{Colors.SYSTEM_INFO}Exiting chat due to interrupt.{Colors.ENDC}")
                     break
                 except Exception as e:
-                    print(f"\n{Colors.LOG_ERROR}An error occurred: {e}{Colors.ENDC}") # Red for error
-                    # Optionally, decide if the loop should continue or break on error
-    except Exception as e:
-        logger.error(f"Error during interactive session: {e}")
-    finally:
-        # Clean up servers
-        await cleanup_servers()
-        print(f"\n{Colors.LOG_INFO}Chat session complete. MCP Servers disconnected.{Colors.ENDC}") # Green for success/info
+                    logger.exception("An error occurred during the interactive loop.") # Log with stack trace
+                    print(f"\n{Colors.LOG_ERROR}An error occurred: {e}{Colors.ENDC}")
+    
+    # logger.info("Chat session complete.") # Reduced verbosity
+    print(f"\n{Colors.LOG_INFO}Chat session complete. MCP Servers will be disconnected.{Colors.ENDC}")
+
 
 if __name__ == "__main__":
-    # Use try-except to catch potential issues during async run, like initial connection errors
     try:
         asyncio.run(main())
+    except RuntimeError as e: # Catch specific RuntimeErrors like npx/uvx not found
+        logger.error(f"Runtime error during script initialization: {e}")
+        print(f"{Colors.LOG_ERROR}Runtime error: {e}{Colors.ENDC}")
     except Exception as e:
-        logger.exception(f"An error occurred during script execution: {e}")
-        print(f"{Colors.LOG_ERROR}An error occurred during script execution: {e}{Colors.ENDC}") # Red for critical script error
+        logger.exception(f"An unexpected error occurred during script execution: {e}")
+        print(f"{Colors.LOG_ERROR}An unexpected error occurred: {e}{Colors.ENDC}")
