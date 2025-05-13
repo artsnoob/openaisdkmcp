@@ -115,3 +115,4 @@ def ensure_venv_exists(logger, venv_path):
     except Exception as e:
         logger.error(f"Failed to create virtual environment: {e}")
         return False, False
+
