@@ -1,0 +1,39 @@
+Tech RSS Feeds:
+
+https://tweakers.net/feeds/mixed.xml
+https://techcrunch.com/feed/
+https://www.wired.com/feed/rss
+https://www.engadget.com/rss.xml
+https://www.theverge.com/rss/index.xml
+https://arstechnica.com/feed/
+https://www.cnet.com/rss/news/
+https://gizmodo.com/rss/
+
+News RSS Feeds:
+
+http://feeds.bbci.co.uk/news/rss.xml
+https://feeds.nos.nl/nosnieuwsalgemeen
+https://www.ad.nl/rss/binnenland.xml
+https://feeds.bbci.co.uk/news/world/rss.xml
+http://rss.cnn.com/rss/edition_world.rss
+https://rss.nytimes.com/services/xml/rss/nyt/HomePage.xml
+https://www.reutersagency.com/feed/?best-topics=world-news
+https://www.theguardian.com/world/rss
+https://www.cbsnews.com/latest/rss/world
+https://feeds.npr.org/1004/rss.xml
+https://www.cnbc.com/id/100727362/device/rss/rss.html
+
+AI RSS Feeds:
+
+https://marktechpost.com/feed/
+https://ai2people.com/feed/
+https://www.kdnuggets.com/feed/
+https://machinelearningmastery.com/blog/feed/
+https://jamesg.blog/openai.xml
+http://ai.googleblog.com/atom.xml
+https://deepmind.com/blog/feed/basic/
+https://bair.berkeley.edu/blog/feed.xml
+https://aws.amazon.com/blogs/machine-learning/feed/
+https://towardsdatascience.com/feed
+https://distill.pub/rss.xml
+https://arxiv.org/rss/cs.LG

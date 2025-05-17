@@ -1,0 +1,74 @@
+# Python
+__pycache__/
+*.pyc
+*.pyo
+*.pyd
+.Python
+env/
+venv/
+pip-wheel-metadata/
+.installed.cfg
+*.egg-info/
+*.egg
+.env
+*.env
+.env.*
+!/.env.example
+
+# Node.js (general, some might be covered by mcp_code_executor/.gitignore)
+node_modules/
+npm-debug.log*
+yarn-debug.log*
+yarn-error.log*
+# package-lock.json # Often committed, but can be ignored if preferred. Keeping it for now.
+# dist/
+# build/ # Be careful if your Python build outputs here
+
+# OS-specific
+.DS_Store
+Thumbs.db
+ehthumbs.db
+
+# IDE-specific
+.vscode/
+.idea/
+*.suo
+*.ntvs*
+*.njsproj
+*.sln
+*.sw?
+
+# Project specific
+project_archive.tar.gz
+*.lock # e.g. .cron_mcp_server.lock, if these are runtime locks
+
+# Log files
+*.log
+
+# Temporary files
+*.tmp
+*.bak
+*.swp
+
+# Coverage reports
+.coverage
+coverage.xml
+htmlcov/
+
+# Jupyter Notebook checkpoints
+.ipynb_checkpoints
+
+# Compiled files
+*.out
+*.o
+*.obj
+
+# Distribution / packaging
+# dist/ # Python dist directory
+# build/ # Python build directory
+# *.whl
+
+# Secrets - ensure these are not committed
+secrets/
+*.pem
+*.key
