@@ -3,7 +3,7 @@ import os
 import shutil
 import logging
 import sys
-import argparse
+# import argparse # No longer needed for verbosity flag
 import json
 from dotenv import load_dotenv
 from contextlib import asynccontextmanager
@@ -27,15 +27,16 @@ if not shutil.which("uvx"):
     logger.error("uvx command not found. Please ensure uvx (part of uv) is installed and in your PATH. See https://github.com/astral-sh/uv")
     raise RuntimeError("uvx command not found.")
 
-parser = argparse.ArgumentParser(description="Run the MCP Agent CLI.")
-parser.add_argument(
-    "-v", "--verbose",
-    action="store_true",
-    help="Enable verbose output, showing detailed agent actions and tool interactions."
-)
+# Argparse is removed as verbosity is now default
+# parser = argparse.ArgumentParser(description="Run the MCP Agent CLI.")
+# parser.add_argument(
+#     "-v", "--verbose",
+#     action="store_true",
+#     help="Enable verbose output, showing detailed agent actions and tool interactions."
+# )
 
 async def main():
-    cli_args = parser.parse_args()
+    # cli_args = parser.parse_args() # No longer needed
 
     script_dir = os.path.dirname(os.path.abspath(__file__))
     samples_dir = os.path.join(script_dir, "sample_mcp_files")
@@ -126,175 +127,197 @@ async def main():
                     result = await Runner.run(starting_agent=agent, input=current_turn_input)
                     current_conversation_history = result.to_input_list() 
 
-                    if cli_args.verbose:
-                        print(f"\n{Colors.HEADER}--- Agent's Detailed Actions (Verbose) ---{Colors.ENDC}")
-                        # 1. Log Raw Model Responses
-                        if hasattr(result, 'raw_responses') and result.raw_responses:
-                            for step_idx, raw_model_response in enumerate(result.raw_responses):
-                                print(f"{Colors.HEADER}Step {step_idx + 1}: Raw Model Response Type: {type(raw_model_response).__name__}{Colors.ENDC}")
+                    # Verbose output is now the default
+                    print(f"\n{Colors.HEADER}--- Agent's Detailed Actions ---{Colors.ENDC}")
+                    # 1. Log Raw Model Responses
+                    if hasattr(result, 'raw_responses') and result.raw_responses:
+                        for step_idx, raw_model_response in enumerate(result.raw_responses):
+                            print(f"{Colors.HEADER}Step {step_idx + 1}: Raw Model Response Type: {type(raw_model_response).__name__}{Colors.ENDC}")
 
-                                if not hasattr(raw_model_response, 'output') or not isinstance(raw_model_response.output, list):
-                                    print(f"{Colors.LOG_WARNING}  Skipping raw_model_response: 'output' attribute missing or not a list.{Colors.ENDC}")
-                                    try: print(f"{Colors.LOG_WARNING}    Preview: {str(raw_model_response)[:200]}...{Colors.ENDC}")
-                                    except: pass
-                                    continue
+                            if not hasattr(raw_model_response, 'output') or not isinstance(raw_model_response.output, list):
+                                print(f"{Colors.LOG_WARNING}  Skipping raw_model_response: 'output' attribute missing or not a list.{Colors.ENDC}")
+                                try: print(f"{Colors.LOG_WARNING}    Preview: {str(raw_model_response)[:200]}...{Colors.ENDC}")
+                                except: pass
+                                continue
 
-                                for output_item_idx, output_item in enumerate(raw_model_response.output):
-                                    print(f"{Colors.SYSTEM_INFO}  Output Item [{output_item_idx+1}] Type: {type(output_item).__name__}{Colors.ENDC}")
-                                    item_processed_for_verbose = False
+                            for output_item_idx, output_item in enumerate(raw_model_response.output):
+                                print(f"{Colors.SYSTEM_INFO}  Output Item [{output_item_idx+1}] Type: {type(output_item).__name__}{Colors.ENDC}")
+                                item_processed_for_verbose = False
 
-                                    if hasattr(output_item, 'arguments'): 
-                                        item_processed_for_verbose = True
-                                        tool_name_attr = getattr(output_item, 'name', None)
-                                        if tool_name_attr is None:
-                                            if hasattr(output_item, 'function_call') and hasattr(output_item.function_call, 'name'):
-                                                tool_name_attr = output_item.function_call.name
-                                            elif hasattr(output_item, 'tool_name'): 
-                                                tool_name_attr = output_item.tool_name
+                                if hasattr(output_item, 'arguments'): 
+                                    item_processed_for_verbose = True
+                                    tool_name_attr = getattr(output_item, 'name', None)
+                                    if tool_name_attr is None: 
+                                        if hasattr(output_item, 'function_call') and hasattr(output_item.function_call, 'name'):
+                                            tool_name_attr = output_item.function_call.name
+                                        elif hasattr(output_item, 'tool_name'): 
+                                            tool_name_attr = output_item.tool_name
 
-                                        tool_id_attr = getattr(output_item, 'id', f"generated_id_{step_idx}_{output_item_idx}")
-                                        tool_args_str = output_item.arguments
+                                    tool_id_attr = getattr(output_item, 'id', f"generated_id_{step_idx}_{output_item_idx}")
+                                    tool_args_str = output_item.arguments
 
-                                        print(f"{Colors.TOOL_INFO}  Assistant Action: Call Tool{Colors.ENDC}")
-                                        print(f"{Colors.TOOL_INFO}    Tool Call ID: {tool_id_attr}{Colors.ENDC}")
-                                        print(f"{Colors.TOOL_INFO}    Tool Name: {Colors.BOLD}{tool_name_attr or 'UnknownToolName'}{Colors.ENDC}")
+                                    print(f"{Colors.TOOL_INFO}  Assistant Action (from Raw Response): Call Tool{Colors.ENDC}")
+                                    print(f"{Colors.TOOL_INFO}    Tool Call ID: {tool_id_attr}{Colors.ENDC}")
+                                    print(f"{Colors.TOOL_INFO}    Tool Name: {Colors.BOLD}{tool_name_attr or 'UnknownToolName'}{Colors.ENDC}")
+                                    
+                                    parsed_tool_args = None
+                                    try:
+                                        if isinstance(tool_args_str, str):
+                                            parsed_tool_args = json.loads(tool_args_str)
+                                        elif isinstance(tool_args_str, dict): 
+                                            parsed_tool_args = tool_args_str
+                                        else:
+                                            parsed_tool_args = {'raw_arguments': tool_args_str}
                                         
-                                        parsed_tool_args = None
-                                        try:
-                                            if isinstance(tool_args_str, str):
-                                                parsed_tool_args = json.loads(tool_args_str)
-                                            elif isinstance(tool_args_str, dict):
-                                                parsed_tool_args = tool_args_str
-                                            else:
-                                                parsed_tool_args = {'raw_arguments': tool_args_str}
-                                            
-                                            pretty_args = json.dumps(parsed_tool_args, indent=2, ensure_ascii=False)
-                                            print(f"{Colors.AGENT_MESSAGE}    Arguments:{Colors.ENDC}\n{Colors.CODE_OUTPUT}{indent_multiline_text(pretty_args, '      ')}{Colors.ENDC}")
+                                        pretty_args = json.dumps(parsed_tool_args, indent=2, ensure_ascii=False)
+                                        print(f"{Colors.AGENT_MESSAGE}    Arguments:{Colors.ENDC}\n{Colors.CODE_OUTPUT}{indent_multiline_text(pretty_args, '      ')}{Colors.ENDC}")
 
-                                            is_execute_code = tool_name_attr == 'execute_code' or \
-                                                              (not tool_name_attr and isinstance(parsed_tool_args, dict) and 'code' in parsed_tool_args)
-                                            if is_execute_code and isinstance(parsed_tool_args, dict):
-                                                code_to_execute = parsed_tool_args.get('code')
-                                                if code_to_execute:
-                                                    print(f"{Colors.TOOL_INFO}      Code to be executed:{Colors.ENDC}\n{Colors.CODE_OUTPUT}{indent_multiline_text(code_to_execute, '        ')}{Colors.ENDC}")
-                                        
-                                        except json.JSONDecodeError as je:
-                                            logger.warning(f"JSONDecodeError parsing arguments for {tool_name_attr}: {tool_args_str} - Error: {je}")
-                                            print(f"{Colors.AGENT_MESSAGE}    Arguments (raw string, JSON decode failed):{Colors.ENDC}\n{Colors.CODE_OUTPUT}{indent_multiline_text(str(tool_args_str), '      ')}{Colors.ENDC}")
-                                        except Exception as e:
-                                            logger.error(f"Error processing/displaying arguments for {tool_name_attr}: {tool_args_str} - Error: {e}")
-                                            print(f"{Colors.AGENT_MESSAGE}    Arguments (error displaying):{Colors.ENDC}\n{Colors.CODE_ERROR}{indent_multiline_text(str(tool_args_str), '      ')}{Colors.ENDC}")
-
-                                    elif hasattr(output_item, 'content') and isinstance(output_item.content, list) and \
-                                         len(output_item.content) > 0 and hasattr(output_item.content[0], 'text') and \
-                                         isinstance(output_item.content[0].text, str) :
-                                        item_processed_for_verbose = True
-                                        tool_response_content_str = output_item.content[0].text
-                                        message_id = getattr(output_item, 'id', "unknown_message_id") 
-                                        # This is an agent's summary/interpretation of a tool's output, not the raw tool output itself
-                                        print(f"{Colors.AGENT_PROMPT}  Assistant Interpreted Tool Output (msg_id: {message_id}){Colors.ENDC}")
-                                        print(f"{Colors.AGENT_MESSAGE}{indent_multiline_text(tool_response_content_str, '    ')}{Colors.ENDC}")
+                                        is_execute_code = tool_name_attr == 'execute_code' or \
+                                                          (not tool_name_attr and isinstance(parsed_tool_args, dict) and 'code' in parsed_tool_args)
+                                        if is_execute_code and isinstance(parsed_tool_args, dict):
+                                            code_to_execute = parsed_tool_args.get('code')
+                                            if code_to_execute:
+                                                print(f"{Colors.TOOL_INFO}      Code to be executed:{Colors.ENDC}\n{Colors.CODE_OUTPUT}{indent_multiline_text(code_to_execute, '        ')}{Colors.ENDC}")
                                     
-                                    elif hasattr(output_item, 'text'):
-                                        item_processed_for_verbose = True
-                                        print(f"{Colors.AGENT_PROMPT}  Assistant Says (direct text output):{Colors.ENDC}")
-                                        print(f"{Colors.AGENT_MESSAGE}{indent_multiline_text(output_item.text, '    ')}{Colors.ENDC}")
-                                    
-                                    if not item_processed_for_verbose:
-                                        print(f"{Colors.LOG_WARNING}    Output item has unknown structure for verbose display: {str(output_item)[:200]}...{Colors.ENDC}")
-                                    print(f"{Colors.HEADER}  ---{Colors.ENDC}")
-                        
-                        # 2. Log the processed conversation_history_items
-                        print(f"\n{Colors.SYSTEM_INFO}--- Processed Conversation History (Message Dictionaries) ---{Colors.ENDC}")
-                        for hist_idx, hist_item in enumerate(current_conversation_history):
-                            role = hist_item.get('role')
-                            print(f"{Colors.HEADER}History Item {hist_idx + 1}: Role: {role if role else 'None/Unknown'}{Colors.ENDC}")
-                            
-                            if role == 'user':
-                                print(f"{Colors.USER_PROMPT}  Content: {hist_item.get('content')}{Colors.ENDC}")
-                            elif role == 'assistant':
-                                assistant_content = hist_item.get('content')
-                                tool_calls = hist_item.get('tool_calls')
-                                if tool_calls: # OpenAI/SDK standard is for tool_calls to be a list
-                                    print(f"{Colors.TOOL_INFO}  Tool Calls by Assistant:{Colors.ENDC}")
-                                    for tc_idx, tc_call_dict in enumerate(tool_calls):
-                                        # Standard OpenAI tool_call dict: {'id': str, 'type': 'function', 'function': {'name': str, 'arguments': str}}
-                                        func_details = tc_call_dict.get('function', {})
-                                        print(f"{Colors.TOOL_INFO}    Call [{tc_idx+1}] ID: {tc_call_dict.get('id')}{Colors.ENDC}")
-                                        print(f"{Colors.TOOL_INFO}      Function Name: {Colors.BOLD}{func_details.get('name')}{Colors.ENDC}")
-                                        print(f"{Colors.AGENT_MESSAGE}      Arguments (JSON str): {func_details.get('arguments')}{Colors.ENDC}")
-                                if assistant_content: # Assistant's textual response
-                                    print(f"{Colors.AGENT_PROMPT}  Text Content: {assistant_content}{Colors.ENDC}")
-                                elif not tool_calls and not assistant_content:
-                                     print(f"{Colors.AGENT_PROMPT}  (No text content or tool calls for assistant message){Colors.ENDC}")
+                                    except json.JSONDecodeError as je:
+                                        logger.warning(f"JSONDecodeError parsing arguments for {tool_name_attr} in Raw Response: {tool_args_str} - Error: {je}")
+                                        print(f"{Colors.AGENT_MESSAGE}    Arguments (raw string, JSON decode failed):{Colors.ENDC}\n{Colors.CODE_OUTPUT}{indent_multiline_text(str(tool_args_str), '      ')}{Colors.ENDC}")
+                                    except Exception as e:
+                                        logger.error(f"Error processing/displaying arguments for {tool_name_attr} in Raw Response: {tool_args_str} - Error: {e}")
+                                        print(f"{Colors.AGENT_MESSAGE}    Arguments (error displaying):{Colors.ENDC}\n{Colors.CODE_ERROR}{indent_multiline_text(str(tool_args_str), '      ')}{Colors.ENDC}")
 
-                            elif role == 'tool':
-                                print(f"{Colors.TOOL_INFO}  Tool Execution Result (for Tool Call ID: {hist_item.get('tool_call_id')}){Colors.ENDC}")
-                                print(f"{Colors.TOOL_INFO}    Tool Name Invoked: {Colors.BOLD}{hist_item.get('name')}{Colors.ENDC}")
-                                tool_content_str = hist_item.get('content', '') # This is the raw string from the tool
-                                print(f"{Colors.TOOL_INFO}    Content (Direct output from tool):{Colors.ENDC}")
-                                try:
-                                    parsed_tool_output = json.loads(tool_content_str)
-                                    pretty_tool_output = json.dumps(parsed_tool_output, indent=2, ensure_ascii=False)
-                                    
-                                    is_error_tool_response = False
-                                    if isinstance(parsed_tool_output, dict):
-                                        if parsed_tool_output.get('status') == 'error' or parsed_tool_output.get('isError'):
-                                            is_error_tool_response = True
-                                    
-                                    display_color = Colors.CODE_ERROR if is_error_tool_response else Colors.CODE_OUTPUT
-                                    print(f"{display_color}{indent_multiline_text(pretty_tool_output, '      ')}{Colors.ENDC}")
-
-                                    if isinstance(parsed_tool_output, dict) and 'status' in parsed_tool_output:
-                                        print(f"{Colors.TOOL_INFO}      Parsed Details from Tool Content:{Colors.ENDC}")
-                                        if 'status' in parsed_tool_output: print(f"{Colors.BOLD}        Status:{Colors.ENDC} {parsed_tool_output['status']}")
-                                        if 'file_path' in parsed_tool_output: print(f"{Colors.BOLD}        File Path:{Colors.ENDC} {parsed_tool_output['file_path']}")
-                                        if 'generated_filename' in parsed_tool_output: print(f"{Colors.BOLD}        Generated Filename:{Colors.ENDC} {parsed_tool_output['generated_filename']}")
-                                        out_val = parsed_tool_output.get('output')
-                                        if out_val is not None: print(f"{Colors.BOLD}        Output:{Colors.ENDC}\n{Colors.CODE_OUTPUT}{indent_multiline_text(str(out_val), '          ')}{Colors.ENDC}")
-                                        err_val = parsed_tool_output.get('error')
-                                        if err_val: print(f"{Colors.BOLD}        Error:{Colors.ENDC}\n{Colors.CODE_ERROR}{indent_multiline_text(err_val, '          ')}{Colors.ENDC}")
-                                        msg_val = parsed_tool_output.get('message')
-                                        if msg_val and out_val is None and not err_val: print(f"{Colors.BOLD}        Message:{Colors.ENDC}\n{Colors.CODE_OUTPUT}{indent_multiline_text(msg_val, '          ')}{Colors.ENDC}")
-
-                                except json.JSONDecodeError:
-                                    print(f"{Colors.CODE_OUTPUT}{indent_multiline_text(tool_content_str, '      ')}{Colors.ENDC}") # Print as raw string if not JSON
-                                except Exception as e:
-                                    logger.error(f"Error displaying tool content from history: {e}")
-                                    print(f"{Colors.CODE_ERROR}{indent_multiline_text(tool_content_str, '      ')} (Error formatting: {e}){Colors.ENDC}")
-                            
-                            # Handle items that might have come from to_input_list() without a standard role
-                            elif not role and isinstance(hist_item, dict):
-                                print(f"{Colors.LOG_WARNING}  History item with no 'role' (content keys: {list(hist_item.keys())}):{Colors.ENDC}")
-                                print(f"{Colors.LOG_WARNING}    Full item: {json.dumps(hist_item, indent=2, default=str)}{Colors.ENDC}")
-
-
-                            print(f"{Colors.HEADER}  ---{Colors.ENDC}")
-                        print(f"{Colors.HEADER}--- End of Agent's Detailed Actions ---{Colors.ENDC}")
+                                elif hasattr(output_item, 'content') and isinstance(output_item.content, list) and \
+                                     len(output_item.content) > 0 and hasattr(output_item.content[0], 'text') and \
+                                     isinstance(output_item.content[0].text, str) :
+                                    item_processed_for_verbose = True
+                                    tool_response_content_str = output_item.content[0].text
+                                    message_id = getattr(output_item, 'id', "unknown_message_id") 
+                                    print(f"{Colors.AGENT_PROMPT}  Assistant Interpreted Tool Output (from Raw Response, msg_id: {message_id}){Colors.ENDC}")
+                                    print(f"{Colors.AGENT_MESSAGE}{indent_multiline_text(tool_response_content_str, '    ')}{Colors.ENDC}")
+                                
+                                elif hasattr(output_item, 'text'): 
+                                    item_processed_for_verbose = True
+                                    print(f"{Colors.AGENT_PROMPT}  Assistant Says (direct text from Raw Response):{Colors.ENDC}")
+                                    print(f"{Colors.AGENT_MESSAGE}{indent_multiline_text(output_item.text, '    ')}{Colors.ENDC}")
+                                
+                                if not item_processed_for_verbose:
+                                    print(f"{Colors.LOG_WARNING}    Raw Response Output item has unknown structure: {str(output_item)[:200]}...{Colors.ENDC}")
+                                print(f"{Colors.HEADER}  ---{Colors.ENDC}") 
                     
-                    else: # Non-verbose summary
-                        tool_names_used_in_turn = set()
-                        start_index_for_turn = 0
-                        for i in range(len(current_conversation_history) - 1, -1, -1):
-                            if current_conversation_history[i].get('role') == 'user':
-                                start_index_for_turn = i
-                                break
+                    # 2. Log the processed conversation_history_items
+                    print(f"\n{Colors.SYSTEM_INFO}--- Processed Conversation History (SDK Messages) ---{Colors.ENDC}")
+                    for hist_idx, hist_item in enumerate(current_conversation_history):
+                        role = hist_item.get('role')
+                        item_type = hist_item.get('type') 
                         
-                        for i in range(start_index_for_turn, len(current_conversation_history)):
-                            hist_item = current_conversation_history[i]
-                            if hist_item.get('role') == 'assistant' and hist_item.get('tool_calls'):
-                                for tc in hist_item.get('tool_calls'):
-                                    func_details = tc.get('function', {})
-                                    tool_name = func_details.get('name')
-                                    if tool_name:
-                                        tool_names_used_in_turn.add(tool_name)
-                            elif hist_item.get('role') == 'tool' and hist_item.get('name'):
-                                tool_names_used_in_turn.add(hist_item.get('name'))
+                        print(f"{Colors.HEADER}History Item {hist_idx + 1}: Role: {role if role else 'N/A'}, Type: {item_type if item_type else 'N/A'}{Colors.ENDC}")
                         
-                        tool_names_used_in_turn.discard(None)
+                        if role == 'user':
+                            print(f"{Colors.USER_PROMPT}  Content: {hist_item.get('content')}{Colors.ENDC}")
+                        
+                        elif role == 'assistant' or item_type == 'function_call': 
+                            assistant_content = hist_item.get('content')
+                            tool_calls_list = hist_item.get('tool_calls') 
+                            if not tool_calls_list and item_type == 'function_call': 
+                                tool_calls_list = [hist_item] 
 
-                        if tool_names_used_in_turn:
-                             print(f"\n{Colors.TOOL_INFO}[Tools Used This Turn: {', '.join(sorted(list(tool_names_used_in_turn)))}]{Colors.ENDC}")
+                            if tool_calls_list:
+                                print(f"{Colors.TOOL_INFO}  Tool Calls by Assistant (from SDK History):{Colors.ENDC}")
+                                for tc_idx, tc_call_item in enumerate(tool_calls_list):
+                                    call_id = tc_call_item.get('id')
+                                    func_name = None
+                                    func_args_str = None
+
+                                    if 'function' in tc_call_item and isinstance(tc_call_item['function'], dict): 
+                                        func_details = tc_call_item.get('function', {})
+                                        func_name = func_details.get('name')
+                                        func_args_str = func_details.get('arguments')
+                                    elif 'name' in tc_call_item and 'arguments' in tc_call_item: 
+                                        func_name = tc_call_item.get('name')
+                                        func_args_str = tc_call_item.get('arguments')
+                                    
+                                    print(f"{Colors.TOOL_INFO}    Call [{tc_idx+1}] ID: {call_id}{Colors.ENDC}")
+                                    print(f"{Colors.TOOL_INFO}      Function Name: {Colors.BOLD}{func_name}{Colors.ENDC}")
+                                    print(f"{Colors.AGENT_MESSAGE}      Arguments (JSON str): {func_args_str}{Colors.ENDC}")
+
+                            if assistant_content and role == 'assistant': 
+                                print(f"{Colors.AGENT_PROMPT}  Text Content: {assistant_content}{Colors.ENDC}")
+                            elif not tool_calls_list and not assistant_content and role == 'assistant' :
+                                 print(f"{Colors.AGENT_PROMPT}  (No text content or tool calls for assistant message){Colors.ENDC}")
+
+                        elif role == 'tool' or item_type == 'function_call_output': 
+                            tool_call_id_ref = hist_item.get('tool_call_id') or hist_item.get('call_id') 
+                            tool_name_invoked = hist_item.get('name', 'UnknownToolName') 
+                            
+                            print(f"{Colors.TOOL_INFO}  Tool Execution Result (for Call ID: ~{tool_call_id_ref}){Colors.ENDC}")
+                            if role == 'tool': 
+                                 print(f"{Colors.TOOL_INFO}    Tool Name Invoked: {Colors.BOLD}{tool_name_invoked}{Colors.ENDC}")
+                            
+                            raw_tool_output_str = hist_item.get('content') if role == 'tool' else hist_item.get('output')
+
+                            print(f"{Colors.TOOL_INFO}    Raw Output String from Tool System:{Colors.ENDC}")
+                            print(f"{Colors.CODE_OUTPUT}{indent_multiline_text(raw_tool_output_str, '      ')}{Colors.ENDC}")
+                            
+                            mcp_executor_response_str = None
+                            try:
+                                outer_parsed = json.loads(raw_tool_output_str)
+                                if isinstance(outer_parsed, dict) and outer_parsed.get('type') == 'text' and 'text' in outer_parsed:
+                                    mcp_executor_response_str = outer_parsed['text']
+                                    print(f"{Colors.TOOL_INFO}    Extracted MCP Executor Response String:{Colors.ENDC}")
+                                    print(f"{Colors.CODE_OUTPUT}{indent_multiline_text(mcp_executor_response_str, '      ')}{Colors.ENDC}")
+                                else: 
+                                    mcp_executor_response_str = raw_tool_output_str
+                            except json.JSONDecodeError:
+                                mcp_executor_response_str = raw_tool_output_str
+                                logger.debug(f"Raw tool output string was not JSON: {raw_tool_output_str}")
+                            except Exception as e:
+                                logger.error(f"Error parsing outer tool output string: {e}")
+                                mcp_executor_response_str = f"Error parsing outer tool output: {e}"
+
+                            if mcp_executor_response_str:
+                                print(f"{Colors.TOOL_INFO}    Final Content from MCP Executor (attempting to parse as JSON):{Colors.ENDC}")
+                                try:
+                                    parsed_mcp_output = json.loads(mcp_executor_response_str)
+                                    pretty_mcp_output = json.dumps(parsed_mcp_output, indent=2, ensure_ascii=False)
+                                    
+                                    is_error_mcp_response = False
+                                    if isinstance(parsed_mcp_output, dict):
+                                        if parsed_mcp_output.get('status') == 'error' or parsed_mcp_output.get('isError'):
+                                            is_error_mcp_response = True
+                                    
+                                    display_color = Colors.CODE_ERROR if is_error_mcp_response else Colors.CODE_OUTPUT
+                                    print(f"{display_color}{indent_multiline_text(pretty_mcp_output, '      ')}{Colors.ENDC}")
+
+                                    if isinstance(parsed_mcp_output, dict) and 'status' in parsed_mcp_output:
+                                        print(f"{Colors.TOOL_INFO}      Parsed Details from MCP Executor Content:{Colors.ENDC}")
+                                        if 'status' in parsed_mcp_output: print(f"{Colors.BOLD}        Status:{Colors.ENDC} {parsed_mcp_output['status']}")
+                                        if 'file_path' in parsed_mcp_output: print(f"{Colors.BOLD}        File Path:{Colors.ENDC} {parsed_mcp_output['file_path']}")
+                                        if 'generated_filename' in parsed_mcp_output: print(f"{Colors.BOLD}        Generated Filename:{Colors.ENDC} {parsed_mcp_output['generated_filename']}")
+                                        out_val = parsed_mcp_output.get('output')
+                                        if out_val is not None: print(f"{Colors.BOLD}        Output:{Colors.ENDC}\n{Colors.CODE_OUTPUT}{indent_multiline_text(str(out_val), '          ')}{Colors.ENDC}")
+                                        err_val = parsed_mcp_output.get('error')
+                                        if err_val: print(f"{Colors.BOLD}        Error:{Colors.ENDC}\n{Colors.CODE_ERROR}{indent_multiline_text(err_val, '          ')}{Colors.ENDC}")
+                                        msg_val = parsed_mcp_output.get('message')
+                                        if msg_val and out_val is None and not err_val: print(f"{Colors.BOLD}        Message:{Colors.ENDC}\n{Colors.CODE_OUTPUT}{indent_multiline_text(msg_val, '          ')}{Colors.ENDC}")
+                                except json.JSONDecodeError:
+                                    print(f"{Colors.CODE_OUTPUT}{indent_multiline_text(mcp_executor_response_str, '      ')} (Content was not valid JSON){Colors.ENDC}")
+                                except Exception as e:
+                                    logger.error(f"Error displaying final MCP executor content: {e}")
+                                    print(f"{Colors.CODE_ERROR}{indent_multiline_text(mcp_executor_response_str, '      ')} (Error formatting: {e}){Colors.ENDC}")
+                        
+                        elif isinstance(hist_item, dict): 
+                            print(f"{Colors.LOG_WARNING}  Other item in history (keys: {list(hist_item.keys())}):{Colors.ENDC}")
+                            try:
+                                print(f"{Colors.LOG_WARNING}    Full item: {json.dumps(hist_item, indent=2, default=str)}{Colors.ENDC}")
+                            except TypeError: 
+                                print(f"{Colors.LOG_WARNING}    Full item (raw): {hist_item}{Colors.ENDC}")
+
+                        print(f"{Colors.HEADER}  ---{Colors.ENDC}")
+                    print(f"{Colors.HEADER}--- End of Agent's Detailed Actions ---{Colors.ENDC}")
+                    
+                    # The non-verbose summary part is removed as verbose is now default.
+                    # else: 
+                    #    ... (non-verbose summary logic was here) ...
 
                     print(f"\n{Colors.BOLD}{Colors.AGENT_PROMPT}Agent: {Colors.ENDC}")
                     print(f"{Colors.AGENT_MESSAGE}{result.final_output}{Colors.ENDC}")
@@ -307,7 +330,6 @@ async def main():
                     print(f"\n{Colors.LOG_ERROR}An error occurred: {e}{Colors.ENDC}")
     
     print(f"\n{Colors.LOG_INFO}Chat session complete. MCP Servers will be disconnected.{Colors.ENDC}")
-
 
 if __name__ == "__main__":
     try:
