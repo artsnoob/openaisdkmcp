@@ -1,0 +1,62 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no, viewport-fit=cover">
+    <meta name="apple-mobile-web-app-capable" content="yes">
+    <meta name="apple-mobile-web-app-status-bar-style" content="default">
+    <title>MCP Agent</title>
+    <!-- Google Fonts -->
+    <link rel="preconnect" href="https://fonts.googleapis.com">
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700&display=swap" rel="stylesheet">
+    <!-- Font Awesome -->
+    <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css">
+    <link rel="stylesheet" href="style.css">
+</head>
+<body>
+    <div class="app-container">
+        <header class="app-header">
+            <div class="header-content">
+                <div class="logo">
+                    <i class="fa-solid fa-robot"></i>
+                    <h1>MCP Agent</h1>
+                </div>
+                <div class="theme-toggle">
+                    <i class="fa-solid fa-moon" id="theme-icon"></i>
+                </div>
+            </div>
+        </header>
+
+        <main class="chat-container">
+            <div class="chat-messages" id="chat-output">
+                <div class="message-timestamp">Today</div>
+                <div class="message agent-message">
+                    <div class="message-avatar">
+                        <i class="fa-solid fa-robot"></i>
+                    </div>
+                    <div class="message-content">
+                        <div class="message-text">Hello! I'm your MCP Agent. How can I assist you today?</div>
+                        <div class="message-time">Just now</div>
+                    </div>
+                </div>
+                <!-- Messages will be appended here by script.js -->
+            </div>
+        </main>
+
+        <footer class="input-container">
+            <div class="input-wrapper">
+                <textarea id="user-input" placeholder="Type your message here..." rows="1"></textarea>
+                <button id="send-button" class="send-button">
+                    <i class="fa-solid fa-paper-plane"></i>
+                </button>
+            </div>
+            <div class="features-bar">
+                <div class="feature-hint">Press Enter to send, Shift+Enter for new line</div>
+            </div>
+        </footer>
+    </div>
+
+    <script src="script.js"></script>
+</body>
+</html>
