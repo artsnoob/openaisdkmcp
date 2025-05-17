@@ -3,6 +3,7 @@ import os
 import shutil
 import logging
 import sys
+import json # Added for parsing tool arguments and results
 from dotenv import load_dotenv
 from contextlib import asynccontextmanager
 import threading
@@ -73,64 +74,115 @@ def chat_endpoint(): # Changed to sync def
     async def run_agent_async(): # Define an inner async function to run the agent logic
         # Since set_tracing_disabled(True) is active, this trace context should be a no-op.
         # Kept for consistency if tracing is re-enabled.
-        with trace("WebAgentChatRequest") as web_trace_span:
-            result = await Runner.run(starting_agent=agent_instance, input=current_turn_input)
-
-            # ---- START DEBUGGING ----
-            logger.info("--- Agent Run Result Inspection (Threadsafe Call) ---")
-            logger.info(f"Type of result: {type(result)}")
-            if hasattr(result, 'final_output'):
-                logger.info(f"Result final_output: {result.final_output}")
-            else:
-                logger.info("Result has no final_output attribute.")
-
-            if hasattr(result, 'raw_responses') and result.raw_responses:
-                logger.info(f"Number of raw_responses: {len(result.raw_responses)}")
-                for i, raw_resp_msg in enumerate(result.raw_responses):
-                    logger.info(f"--- Raw Response Message {i} ---")
-                    logger.info(f"Type of raw_resp_msg: {type(raw_resp_msg)}")
-                    if hasattr(raw_resp_msg, 'role'):
-                        logger.info(f"  raw_resp_msg.role: {getattr(raw_resp_msg, 'role')}")
-                    if hasattr(raw_resp_msg, 'content'):
-                        logger.info(f"  raw_resp_msg.content: {getattr(raw_resp_msg, 'content')}")
-                    if hasattr(raw_resp_msg, 'name'):
-                        logger.info(f"  raw_resp_msg.name: {getattr(raw_resp_msg, 'name')}")
-                    if hasattr(raw_resp_msg, 'tool_call_id'):
-                        logger.info(f"  raw_resp_msg.tool_call_id: {getattr(raw_resp_msg, 'tool_call_id')}")
-                    if hasattr(raw_resp_msg, 'tool_calls') and getattr(raw_resp_msg, 'tool_calls'):
-                        logger.info(f"  raw_resp_msg has {len(getattr(raw_resp_msg, 'tool_calls'))} tool_calls:")
-                        for tc_idx, tool_call in enumerate(getattr(raw_resp_msg, 'tool_calls')):
-                            logger.info(f"    Tool Call {tc_idx}:")
-                            if hasattr(tool_call, 'name'):
-                                logger.info(f"      Name: {getattr(tool_call, 'name')}")
-                            if hasattr(tool_call, 'args'):
-                                logger.info(f"      Args: {getattr(tool_call, 'args')}")
-                            if hasattr(tool_call, 'id'):
-                                logger.info(f"      ID: {getattr(tool_call, 'id')}")
-            else:
-                logger.info("No raw_responses found in result or raw_responses is empty.")
-            logger.info("--- End Agent Run Result Inspection (Threadsafe Call) ---")
-            # ---- END DEBUGGING ----
+        with trace("WebAgentChatRequest") as web_trace_span: # web_trace_span is NoOpTrace if tracing disabled
+            result = await Runner.run(starting_agent=agent_instance, input=current_turn_input, max_turns=30)
             
-            # With tracing disabled, web_trace_span is a NoOpTrace and does not have set_metadata.
-            # These lines are removed as they would cause an error.
-            # if hasattr(result, 'raw_responses'):
-            #      web_trace_span.set_metadata({"num_raw_responses": len(result.raw_responses) if result.raw_responses else 0})
-            # if hasattr(result, 'final_output'):
-            #      web_trace_span.set_metadata({"final_output_length": len(result.final_output) if result.final_output else 0})
+            # Extract feedback for the current turn
+            previous_history_len = len(current_turn_input)
+            full_updated_history = result.to_input_list()
+            new_history_items_for_turn = full_updated_history[previous_history_len:]
+
+            turn_feedback_details = []
+            last_assistant_tool_calls = [] # Store tool_calls from the most recent assistant message
+
+            for hist_item in new_history_items_for_turn:
+                role = hist_item.get('role')
+                
+                if role == 'assistant':
+                    last_assistant_tool_calls = hist_item.get('tool_calls', []) 
+                    
+                    if last_assistant_tool_calls:
+                        for tc_call_item in last_assistant_tool_calls:
+                            func_details = tc_call_item.get('function', {})
+                            func_name = func_details.get('name')
+                            func_args_str = func_details.get('arguments')
+                            parsed_args = {}
+                            try:
+                                if isinstance(func_args_str, str):
+                                    parsed_args = json.loads(func_args_str)
+                                elif isinstance(func_args_str, dict):
+                                    parsed_args = func_args_str
+                                else: # Fallback if arguments are not string or dict
+                                    parsed_args = {"raw_arguments": str(func_args_str)}
+                            except json.JSONDecodeError:
+                                parsed_args = {"raw_arguments": func_args_str, "error": "JSONDecodeError"}
+                            except Exception as e:
+                                parsed_args = {"raw_arguments": str(func_args_str), "error": f"Parsing error: {str(e)}"}
+                            
+                            turn_feedback_details.append({
+                                "type": "tool_call",
+                                "call_id": tc_call_item.get('id'),
+                                "tool_name": func_name,
+                                "tool_input": parsed_args
+                            })
+                    
+                    # Assistant's textual content is part of result.final_output,
+                    # but if there are intermediate text messages from assistant, they might appear here.
+                    # For now, we primarily rely on result.final_output for the agent's textual reply.
+                    # assistant_content = hist_item.get('content')
+                    # if assistant_content:
+                    #     turn_feedback_details.append({
+                    #         "type": "assistant_message_part", # Or some other type
+                    #         "content": assistant_content
+                    #     })
+
+                elif role == 'tool':
+                    tool_call_id_ref = hist_item.get('tool_call_id')
+                    raw_tool_output_str = hist_item.get('content')
+                    
+                    mcp_executor_response_str = raw_tool_output_str
+                    parsed_mcp_output = {"raw_output": raw_tool_output_str} 
+
+                    try:
+                        if isinstance(raw_tool_output_str, str):
+                            outer_parsed = json.loads(raw_tool_output_str)
+                            if isinstance(outer_parsed, dict) and outer_parsed.get('type') == 'text' and 'text' in outer_parsed:
+                                mcp_executor_response_str = outer_parsed['text']
+                    except json.JSONDecodeError:
+                        pass 
+                    except Exception:
+                        pass
+
+                    try:
+                        if not isinstance(mcp_executor_response_str, str):
+                             mcp_executor_response_str = str(mcp_executor_response_str)
+                        parsed_mcp_output = json.loads(mcp_executor_response_str)
+                    except json.JSONDecodeError:
+                        parsed_mcp_output = {"non_json_output": mcp_executor_response_str}
+                    except Exception as e:
+                        parsed_mcp_output = {"parsing_error": str(e), "raw_content": mcp_executor_response_str}
+                    
+                    called_tool_name = "UnknownTool"
+                    if last_assistant_tool_calls:
+                        for tc in last_assistant_tool_calls:
+                            if tc.get('id') == tool_call_id_ref:
+                                called_tool_name = tc.get('function', {}).get('name', "UnknownTool")
+                                break
+                    
+                    turn_feedback_details.append({
+                        "type": "tool_result",
+                        "call_id": tool_call_id_ref,
+                        "tool_name": called_tool_name,
+                        "result_content": parsed_mcp_output
+                    })
             
-            return result
+            # Update conversation_history_items for the next turn *outside* run_agent_async
+            # The 'result' object itself will be returned, and history updated from it.
+            return result, turn_feedback_details
 
     try:
-        # Schedule the inner async function on the main event loop and wait for its result
         future = asyncio.run_coroutine_threadsafe(run_agent_async(), main_event_loop)
-        result = future.result(timeout=70) # Wait for the result with a timeout
+        # result here is the tuple (agent_run_result, turn_feedback_details)
+        agent_run_result, turn_feedback_payload = future.result(timeout=70) 
 
-        conversation_history_items = result.to_input_list() # Update history
-        return jsonify({"reply": result.final_output})
-    except concurrent.futures.TimeoutError: # Catch timeout from future.result()
+        conversation_history_items = agent_run_result.to_input_list() # Update history
+        return jsonify({
+            "reply": agent_run_result.final_output,
+            "turn_feedback": turn_feedback_payload
+        })
+    except concurrent.futures.TimeoutError:
         logger.error("Timeout waiting for agent processing in main loop via run_coroutine_threadsafe.")
-        return jsonify({"error": "Agent processing timed out in main loop"}), 500
+        return jsonify({"error": "Agent processing timed out in main loop", "turn_feedback": []}), 500
     except Exception as e:
         # This will catch other exceptions from run_agent_async or run_coroutine_threadsafe
         logger.error(f"Error during agent processing (via run_coroutine_threadsafe): {e}", exc_info=True)
@@ -189,7 +241,8 @@ async def initialize_agent_and_servers():
         print(f"{Colors.LOG_INFO}Total successfully connected servers: {len(successfully_connected_servers)}.{Colors.ENDC}")
 
     mcp_servers_to_manage = successfully_connected_servers # Store for cleanup
-    agent_instance = setup_agent(logger, successfully_connected_servers, samples_dir)
+    # Correctly unpack the agent object from the tuple returned by setup_agent
+    agent_instance, _ = setup_agent(logger, successfully_connected_servers, samples_dir) 
     conversation_history_items = [] # Initialize conversation history for the web app
 
     print(f"{Colors.SYSTEM_INFO}Agent and servers initialized. Flask server will start shortly.{Colors.ENDC}")

@@ -12,12 +12,9 @@ https://gizmodo.com/rss/
 News RSS Feeds:
 
 http://feeds.bbci.co.uk/news/rss.xml
-https://feeds.nos.nl/nosnieuwsalgemeen
-https://www.ad.nl/rss/binnenland.xml
 https://feeds.bbci.co.uk/news/world/rss.xml
 http://rss.cnn.com/rss/edition_world.rss
 https://rss.nytimes.com/services/xml/rss/nyt/HomePage.xml
-https://www.reutersagency.com/feed/?best-topics=world-news
 https://www.theguardian.com/world/rss
 https://www.cbsnews.com/latest/rss/world
 https://feeds.npr.org/1004/rss.xml
