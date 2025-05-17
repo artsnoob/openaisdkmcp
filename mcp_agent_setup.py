@@ -1,8 +1,7 @@
 from agents import Agent
 
 def setup_agent(logger, working_servers, samples_dir):
-    """Sets up and returns the Agent instance."""
-    # logger.info("Setting up the Agent...") # Reduced verbosity
+    """Sets up and returns the Agent instance and its instructions string."""
     
     agent_instructions = (
         "You are an agent that can interact with a local filesystem, fetch web content, perform web searches using Brave Search, execute code using the MCP Code Executor, and interact with an Obsidian vault using the 'Obsidian MCP Server'.\n\n"
@@ -38,7 +37,6 @@ def setup_agent(logger, working_servers, samples_dir):
         name="FileFetchSearchCodeExecutorAgent",
         instructions=agent_instructions,
         mcp_servers=working_servers,
-        model="gpt-4o-mini", # Using gpt-4o-mini as specified
+        model="gpt-4o-mini",
     )
-    # logger.info("Agent setup complete.") # Reduced verbosity
-    return agent
+    return agent, agent_instructions
