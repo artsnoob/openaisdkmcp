@@ -171,7 +171,7 @@ async def main():
                     print(f"{Colors.SYSTEM_INFO}Agent is processing...{Colors.ENDC}")
                     
                     # ─── RUN AGENT ─────────────────────────────────────────────────────────
-                    result = await Runner.run(starting_agent=agent, input=msgs)
+                    result = await Runner.run(starting_agent=agent, input=msgs, max_turns=20) # Increased max_turns
                     current_conversation_history = result.to_input_list()
 
                     # ─── COUNT COMPLETION TOKENS & COMPUTE COST ──────────────────────────
