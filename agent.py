@@ -10,6 +10,7 @@ from contextlib import asynccontextmanager
 
 # ─── NEW IMPORTS ──────────────────────────────────────────────────────────────
 import tiktoken
+import openai # Ensure openai is imported to catch openai.BadRequestError
 # ─── END NEW IMPORTS ──────────────────────────────────────────────────────────
 
 from agents import Runner, trace
@@ -35,22 +36,12 @@ if not shutil.which("uvx"):
 MODEL_NAME = "gpt-4o-mini"
 ENC = tiktoken.encoding_for_model(MODEL_NAME)
 
-# Pricing in USD per 1 000 tokens (adjust to your actual plan)
-PROMPT_PRICE_PER_1K      = 0.03
-COMPLETION_PRICE_PER_1K  = 0.06
+# Pricing in USD per 1 000 tokens (adjust to your actual plan if different)
+PROMPT_PRICE_PER_1K      = 0.00015 # gpt-4o-mini input price
+COMPLETION_PRICE_PER_1K  = 0.0006  # gpt-4o-mini output price
 # ─── END PRICING SETUP ────────────────────────────────────────────────────────
 
-# Argparse is removed as verbosity is now default
-# parser = argparse.ArgumentParser(description="Run the MCP Agent CLI.")
-# parser.add_argument(
-#     "-v", "--verbose",
-#     action="store_true",
-#     help="Enable verbose output, showing detailed agent actions and tool interactions."
-# )
-
 async def main():
-    # cli_args = parser.parse_args() # No longer needed
-
     script_dir = os.path.dirname(os.path.abspath(__file__))
     samples_dir = os.path.join(script_dir, "sample_mcp_files")
     samples_dir = os.path.abspath(samples_dir)
@@ -138,7 +129,6 @@ async def main():
                         print(f"{Colors.HEADER}------------------------{Colors.ENDC}")
                         continue
 
-                    # ─── NEW CHAT ─────────────────────────────────────────────────────────
                     if user_input_text.lower() == "/newchat":
                         current_conversation_history = []
                         total_conversation_prompt_tokens = 0
@@ -147,10 +137,10 @@ async def main():
                         print(f"{Colors.SYSTEM_INFO}Conversation history cleared. Totals reset. Starting fresh.{Colors.ENDC}")
                         continue
 
-                    # ─── PREPARE MESSAGES & COUNT TOKENS ─────────────────────────────────
-                    # (optionally window history to last 8 msgs)
-                    current_conversation_history = current_conversation_history[-8:] # Keep last 8 for context window management
+                    # MODIFIED: Naive truncation commented out for debugging
+                    # current_conversation_history = current_conversation_history[-8:] 
                     msgs = current_conversation_history + [{"role": "user", "content": user_input_text}]
+                    
                     prompt_tokens = 0
                     for m_hist in msgs:
                         msg_content_val = m_hist.get("content")
@@ -158,37 +148,51 @@ async def main():
                             prompt_tokens += len(ENC.encode(msg_content_val))
                         elif isinstance(msg_content_val, list):
                             for content_block in msg_content_val:
-                                # Check if the block is a dictionary and has a 'text' field of type string
                                 if isinstance(content_block, dict) and content_block.get("type") == "text":
                                     text_to_encode = content_block.get("text")
                                     if isinstance(text_to_encode, str):
                                         prompt_tokens += len(ENC.encode(text_to_encode))
-                                # Note: This primarily handles text content parts. Other complex content
-                                # types like tool calls or images within 'content' might require
-                                # more specific tokenization logic if they contribute to prompt tokens
-                                # in a way not covered by simple text extraction.
+                    
                     print(f"{Colors.SYSTEM_INFO}[tokens] prompt: {prompt_tokens}{Colors.ENDC}")
                     print(f"{Colors.SYSTEM_INFO}Agent is processing...{Colors.ENDC}")
                     
-                    # ─── RUN AGENT ─────────────────────────────────────────────────────────
-                    result = await Runner.run(starting_agent=agent, input=msgs, max_turns=20) # Increased max_turns
+                    # ─── RUN AGENT (WITH IMPROVED ERROR LOGGING) ──────────────────────
+                    try:
+                        # Set max_turns; 20 was original, 40 was used in logs. Let's stick to a reasonable value for now.
+                        result = await Runner.run(starting_agent=agent, input=msgs, max_turns=30) 
+                    except openai.BadRequestError as bre:
+                        logger.error(f"{Colors.LOG_ERROR}BadRequestError during Runner.run. This means the API call was malformed.{Colors.ENDC}")
+                        logger.error(f"{Colors.LOG_ERROR}The input 'msgs' to Runner.run that likely caused this was:{Colors.ENDC}")
+                        try:
+                            pretty_msgs = json.dumps(msgs, indent=2, default=str)
+                            logger.error(f"\n{Colors.CODE_ERROR}{indent_multiline_text(pretty_msgs, '  ')}{Colors.ENDC}")
+                        except TypeError:
+                            logger.error(f"\n{Colors.CODE_ERROR}{indent_multiline_text(str(msgs), '  ')}{Colors.ENDC}")
+                        
+                        error_body_str = "Could not serialize error body."
+                        if bre.body:
+                            try:
+                                error_body_str = json.dumps(bre.body, indent=2)
+                            except (TypeError, json.JSONDecodeError):
+                                error_body_str = str(bre.body)
+                        
+                        logger.error(f"{Colors.LOG_ERROR}OpenAI API Error details (bre.body):{Colors.ENDC}\n{Colors.CODE_ERROR}{indent_multiline_text(error_body_str, '  ')}{Colors.ENDC}")
+                        raise 
+                    # ─── END RUN AGENT ───────────────────────────────────────────────────
+                    
                     current_conversation_history = result.to_input_list()
 
-                    # ─── COUNT COMPLETION TOKENS & COMPUTE COST ──────────────────────────
                     if hasattr(result, "usage") and result.usage and \
                        hasattr(result.usage, 'prompt_tokens') and \
                        hasattr(result.usage, 'completion_tokens') and \
                        hasattr(result.usage, 'total_tokens'):
-                        # If underlying OpenAI usage is exposed directly by the agent's result
                         pt = result.usage.prompt_tokens
                         ct = result.usage.completion_tokens
                         tt = result.usage.total_tokens
                     else:
-                        # Fallback: encode the final_output for completion tokens
-                        # Ensure final_output is a string before encoding
                         final_output_str = result.final_output if isinstance(result.final_output, str) else str(result.final_output or "")
                         ct = len(ENC.encode(final_output_str))
-                        pt = prompt_tokens # Use our calculated prompt_tokens
+                        pt = prompt_tokens 
                         tt = pt + ct
                     
                     cost = (pt / 1000) * PROMPT_PRICE_PER_1K + (ct / 1000) * COMPLETION_PRICE_PER_1K
@@ -197,10 +201,7 @@ async def main():
                     total_conversation_completion_tokens += ct
                     total_conversation_cost += cost
                     
-                    # Verbose output is now the default
-                    
                     print(f"\n{Colors.HEADER}--- Agent's Detailed Actions ---{Colors.ENDC}")
-                    # 1. Log Raw Model Responses
                     if hasattr(result, 'raw_responses') and result.raw_responses:
                         for step_idx, raw_model_response in enumerate(result.raw_responses):
                             print(f"{Colors.HEADER}Step {step_idx + 1}: Raw Model Response Type: {type(raw_model_response).__name__}{Colors.ENDC}")
@@ -275,7 +276,6 @@ async def main():
                                     print(f"{Colors.LOG_WARNING}    Raw Response Output item has unknown structure: {str(output_item)[:200]}...{Colors.ENDC}")
                                 print(f"{Colors.HEADER}  ---{Colors.ENDC}") 
                     
-                    # 2. Log the processed conversation_history_items
                     print(f"\n{Colors.SYSTEM_INFO}--- Processed Conversation History (SDK Messages) ---{Colors.ENDC}")
                     for hist_idx, hist_item in enumerate(current_conversation_history):
                         role = hist_item.get('role')
@@ -331,23 +331,31 @@ async def main():
                             
                             mcp_executor_response_str = None
                             try:
-                                outer_parsed = json.loads(raw_tool_output_str)
-                                if isinstance(outer_parsed, dict) and outer_parsed.get('type') == 'text' and 'text' in outer_parsed:
-                                    mcp_executor_response_str = outer_parsed['text']
-                                    print(f"{Colors.TOOL_INFO}    Extracted MCP Executor Response String:{Colors.ENDC}")
-                                    print(f"{Colors.CODE_OUTPUT}{indent_multiline_text(mcp_executor_response_str, '      ')}{Colors.ENDC}")
+                                if isinstance(raw_tool_output_str, str):
+                                    outer_parsed = json.loads(raw_tool_output_str)
+                                    if isinstance(outer_parsed, dict) and outer_parsed.get('type') == 'text' and 'text' in outer_parsed:
+                                        mcp_executor_response_str = outer_parsed['text']
+                                        print(f"{Colors.TOOL_INFO}    Extracted MCP Executor Response String:{Colors.ENDC}")
+                                        print(f"{Colors.CODE_OUTPUT}{indent_multiline_text(mcp_executor_response_str, '      ')}{Colors.ENDC}")
+                                    else: 
+                                        mcp_executor_response_str = raw_tool_output_str
                                 else: 
-                                    mcp_executor_response_str = raw_tool_output_str
+                                    mcp_executor_response_str = str(raw_tool_output_str)
+
                             except json.JSONDecodeError:
-                                mcp_executor_response_str = raw_tool_output_str
-                                logger.debug(f"Raw tool output string was not JSON: {raw_tool_output_str}")
+                                mcp_executor_response_str = raw_tool_output_str if isinstance(raw_tool_output_str, str) else str(raw_tool_output_str)
+                                logger.debug(f"Raw tool output string was not JSON or not structured as expected: {raw_tool_output_str}")
                             except Exception as e:
                                 logger.error(f"Error parsing outer tool output string: {e}")
                                 mcp_executor_response_str = f"Error parsing outer tool output: {e}"
 
+
                             if mcp_executor_response_str:
                                 print(f"{Colors.TOOL_INFO}    Final Content from MCP Executor (attempting to parse as JSON):{Colors.ENDC}")
                                 try:
+                                    if not isinstance(mcp_executor_response_str, str):
+                                        mcp_executor_response_str = str(mcp_executor_response_str)
+
                                     parsed_mcp_output = json.loads(mcp_executor_response_str)
                                     pretty_mcp_output = json.dumps(parsed_mcp_output, indent=2, ensure_ascii=False)
                                     
@@ -385,7 +393,6 @@ async def main():
 
                         print(f"{Colors.HEADER}  ---{Colors.ENDC}")
 
-                    # Print token and cost information here, before "End of Agent's Detailed Actions"
                     print(f"{Colors.SYSTEM_INFO}[turn usage] prompt: {pt}, completion: {ct}, total: {tt}{Colors.ENDC}")
                     print(f"{Colors.SYSTEM_INFO}[turn cost] ${cost:.5f}{Colors.ENDC}")
                     print(f"{Colors.SYSTEM_INFO}[total usage] prompt: {total_conversation_prompt_tokens}, completion: {total_conversation_completion_tokens}, total: {total_conversation_prompt_tokens + total_conversation_completion_tokens}{Colors.ENDC}")
@@ -393,18 +400,14 @@ async def main():
                     
                     print(f"{Colors.HEADER}--- End of Agent's Detailed Actions ---{Colors.ENDC}")
                     
-                    # The non-verbose summary part is removed as verbose is now default.
-                    # else: 
-                    #    ... (non-verbose summary logic was here) ...
-
                     print(f"\n{Colors.BOLD}{Colors.AGENT_PROMPT}Agent: {Colors.ENDC}")
                     print(f"{Colors.AGENT_MESSAGE}{result.final_output}{Colors.ENDC}")
                     
                 except KeyboardInterrupt:
                     print(f"\n{Colors.SYSTEM_INFO}Exiting chat due to interrupt.{Colors.ENDC}")
                     break
-                except Exception as e:
-                    logger.exception("An error occurred during the interactive loop.")
+                except Exception as e: 
+                    logger.exception("An error occurred during the interactive loop.") 
                     print(f"\n{Colors.LOG_ERROR}An error occurred: {e}{Colors.ENDC}")
     
     print(f"\n{Colors.LOG_INFO}Chat session complete. MCP Servers will be disconnected.{Colors.ENDC}")
