@@ -37,11 +37,6 @@ document.addEventListener('DOMContentLoaded', () => {
         const newHeight = Math.min(userInput.scrollHeight, 120); // Limit max height
         userInput.style.height = newHeight + 'px';
         
-        // On mobile, adjust chat container height when textarea grows
-        if (isMobile) {
-            const inputContainerHeight = document.querySelector('.input-container').offsetHeight;
-            chatContainer.style.height = `calc(100vh - ${inputContainerHeight}px)`;
-        }
     }
     
     userInput.addEventListener('input', resizeTextarea);
@@ -131,48 +126,21 @@ document.addEventListener('DOMContentLoaded', () => {
     
     // Smooth scroll to bottom of chat
     function scrollToBottom() {
-        // Calculate the actual scroll position needed to see the latest message
-        // This accounts for the fixed input container at the bottom on mobile
-        const scrollTarget = chatOutput.scrollHeight + 500; // Add significant extra padding to ensure visibility
-            
-        chatOutput.scrollTo({
-            top: scrollTarget,
-            behavior: 'smooth'
-        });
-        
-        // Double-check scroll position after a short delay
-        setTimeout(() => {
-            if (chatOutput.scrollTop + chatOutput.clientHeight < chatOutput.scrollHeight - 50) {
-                chatOutput.scrollTo({
-                    top: chatOutput.scrollHeight + 1000,
-                    behavior: 'auto' // Use 'auto' for immediate scroll
-                });
-            }
-        }, 300);
+    // Smoothly scroll to the bottom of the chat container
+    chatContainer.scrollTo({
+        top: chatContainer.scrollHeight,
+        behavior: 'smooth'
+    });
     }
     
     // Handle window resize
     function handleResize() {
-        isMobile = window.innerWidth <= 768;
-        
-        // Adjust chat container height for mobile
-        if (isMobile) {
-            const inputContainerHeight = document.querySelector('.input-container').offsetHeight;
-            const headerHeight = document.querySelector('.app-header').offsetHeight;
-            const safeAreaTop = window.getComputedStyle(document.documentElement).getPropertyValue('--safe-area-inset-top') || '0px';
-            const safeAreaBottom = window.getComputedStyle(document.documentElement).getPropertyValue('--safe-area-inset-bottom') || '0px';
-            
-            // Set a CSS variable for the input container height that we can use in our CSS
-            document.documentElement.style.setProperty('--input-container-height', `${inputContainerHeight}px`);
-            
-            // Adjust chat container to fill available space
-            chatContainer.style.height = `calc(100vh - ${headerHeight}px - ${inputContainerHeight}px)`;
-        } else {
-            chatContainer.style.height = '';
-        }
-        
-        // Ensure we're scrolled to the bottom after resize
-        setTimeout(scrollToBottom, 100);
+    // Update CSS variable for input container height (used to pad chat messages)
+    const inputContainerHeight = document.querySelector('.input-container').offsetHeight;
+    document.documentElement.style.setProperty('--input-container-height', `${inputContainerHeight}px`);
+
+    // Ensure we're scrolled to the bottom after resize
+    setTimeout(scrollToBottom, 100);
     }
     
     window.addEventListener('resize', handleResize);

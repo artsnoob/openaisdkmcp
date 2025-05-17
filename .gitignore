@@ -72,3 +72,6 @@ htmlcov/
 secrets/
 *.pem
 *.key
+
+# Sample files for MCP examples
+sample_mcp_files/
