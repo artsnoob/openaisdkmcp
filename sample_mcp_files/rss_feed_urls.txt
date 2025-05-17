@@ -28,12 +28,9 @@ AI RSS Feeds:
 https://marktechpost.com/feed/
 https://ai2people.com/feed/
 https://www.kdnuggets.com/feed/
-https://machinelearningmastery.com/blog/feed/
 https://jamesg.blog/openai.xml
 http://ai.googleblog.com/atom.xml
 https://deepmind.com/blog/feed/basic/
-https://bair.berkeley.edu/blog/feed.xml
 https://aws.amazon.com/blogs/machine-learning/feed/
 https://towardsdatascience.com/feed
 https://distill.pub/rss.xml
-https://arxiv.org/rss/cs.LG

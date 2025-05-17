@@ -8,6 +8,10 @@ import json
 from dotenv import load_dotenv
 from contextlib import asynccontextmanager
 
+# ─── NEW IMPORTS ──────────────────────────────────────────────────────────────
+import tiktoken
+# ─── END NEW IMPORTS ──────────────────────────────────────────────────────────
+
 from agents import Runner, trace
 
 from mcp_utils import Colors, setup_colored_logger, install_basic_packages, ensure_venv_exists, indent_multiline_text
@@ -26,6 +30,15 @@ if not shutil.which("npx"):
 if not shutil.which("uvx"):
     logger.error("uvx command not found. Please ensure uvx (part of uv) is installed and in your PATH. See https://github.com/astral-sh/uv")
     raise RuntimeError("uvx command not found.")
+
+# ─── TOKENIZER & PRICING SETUP ──────────────────────────────────────────────────
+MODEL_NAME = "gpt-4o-mini"
+ENC = tiktoken.encoding_for_model(MODEL_NAME)
+
+# Pricing in USD per 1 000 tokens (adjust to your actual plan)
+PROMPT_PRICE_PER_1K      = 0.03
+COMPLETION_PRICE_PER_1K  = 0.06
+# ─── END PRICING SETUP ────────────────────────────────────────────────────────
 
 # Argparse is removed as verbosity is now default
 # parser = argparse.ArgumentParser(description="Run the MCP Agent CLI.")
@@ -105,8 +118,11 @@ async def main():
             logger.info("All server cleanups attempted.")
 
     async with manage_server_connections(successfully_connected_servers):
-        print(f"{Colors.SYSTEM_INFO}Type 'quit' or 'exit' to end the session. Type '/instructions' to see agent prompts.{Colors.ENDC}")
-        current_conversation_history = [] 
+        current_conversation_history = []
+        total_conversation_prompt_tokens = 0
+        total_conversation_completion_tokens = 0
+        total_conversation_cost = 0.0
+        print(f"{Colors.SYSTEM_INFO}Type 'quit' or 'exit' to end, '/instructions' for prompts, '/newchat' to reset.{Colors.ENDC}")
 
         with trace("MCP Interactive Session"):
             while True:
@@ -122,12 +138,67 @@ async def main():
                         print(f"{Colors.HEADER}------------------------{Colors.ENDC}")
                         continue
 
-                    print(f"{Colors.SYSTEM_INFO}Agent is processing...{Colors.ENDC}")
-                    current_turn_input = current_conversation_history + [{"role": "user", "content": user_input_text}]
-                    result = await Runner.run(starting_agent=agent, input=current_turn_input)
-                    current_conversation_history = result.to_input_list() 
+                    # ─── NEW CHAT ─────────────────────────────────────────────────────────
+                    if user_input_text.lower() == "/newchat":
+                        current_conversation_history = []
+                        total_conversation_prompt_tokens = 0
+                        total_conversation_completion_tokens = 0
+                        total_conversation_cost = 0.0
+                        print(f"{Colors.SYSTEM_INFO}Conversation history cleared. Totals reset. Starting fresh.{Colors.ENDC}")
+                        continue
 
+                    # ─── PREPARE MESSAGES & COUNT TOKENS ─────────────────────────────────
+                    # (optionally window history to last 8 msgs)
+                    current_conversation_history = current_conversation_history[-8:] # Keep last 8 for context window management
+                    msgs = current_conversation_history + [{"role": "user", "content": user_input_text}]
+                    prompt_tokens = 0
+                    for m_hist in msgs:
+                        msg_content_val = m_hist.get("content")
+                        if isinstance(msg_content_val, str):
+                            prompt_tokens += len(ENC.encode(msg_content_val))
+                        elif isinstance(msg_content_val, list):
+                            for content_block in msg_content_val:
+                                # Check if the block is a dictionary and has a 'text' field of type string
+                                if isinstance(content_block, dict) and content_block.get("type") == "text":
+                                    text_to_encode = content_block.get("text")
+                                    if isinstance(text_to_encode, str):
+                                        prompt_tokens += len(ENC.encode(text_to_encode))
+                                # Note: This primarily handles text content parts. Other complex content
+                                # types like tool calls or images within 'content' might require
+                                # more specific tokenization logic if they contribute to prompt tokens
+                                # in a way not covered by simple text extraction.
+                    print(f"{Colors.SYSTEM_INFO}[tokens] prompt: {prompt_tokens}{Colors.ENDC}")
+                    print(f"{Colors.SYSTEM_INFO}Agent is processing...{Colors.ENDC}")
+                    
+                    # ─── RUN AGENT ─────────────────────────────────────────────────────────
+                    result = await Runner.run(starting_agent=agent, input=msgs)
+                    current_conversation_history = result.to_input_list()
+
+                    # ─── COUNT COMPLETION TOKENS & COMPUTE COST ──────────────────────────
+                    if hasattr(result, "usage") and result.usage and \
+                       hasattr(result.usage, 'prompt_tokens') and \
+                       hasattr(result.usage, 'completion_tokens') and \
+                       hasattr(result.usage, 'total_tokens'):
+                        # If underlying OpenAI usage is exposed directly by the agent's result
+                        pt = result.usage.prompt_tokens
+                        ct = result.usage.completion_tokens
+                        tt = result.usage.total_tokens
+                    else:
+                        # Fallback: encode the final_output for completion tokens
+                        # Ensure final_output is a string before encoding
+                        final_output_str = result.final_output if isinstance(result.final_output, str) else str(result.final_output or "")
+                        ct = len(ENC.encode(final_output_str))
+                        pt = prompt_tokens # Use our calculated prompt_tokens
+                        tt = pt + ct
+                    
+                    cost = (pt / 1000) * PROMPT_PRICE_PER_1K + (ct / 1000) * COMPLETION_PRICE_PER_1K
+                    
+                    total_conversation_prompt_tokens += pt
+                    total_conversation_completion_tokens += ct
+                    total_conversation_cost += cost
+                    
                     # Verbose output is now the default
+                    
                     print(f"\n{Colors.HEADER}--- Agent's Detailed Actions ---{Colors.ENDC}")
                     # 1. Log Raw Model Responses
                     if hasattr(result, 'raw_responses') and result.raw_responses:
@@ -313,6 +384,13 @@ async def main():
                                 print(f"{Colors.LOG_WARNING}    Full item (raw): {hist_item}{Colors.ENDC}")
 
                         print(f"{Colors.HEADER}  ---{Colors.ENDC}")
+
+                    # Print token and cost information here, before "End of Agent's Detailed Actions"
+                    print(f"{Colors.SYSTEM_INFO}[turn usage] prompt: {pt}, completion: {ct}, total: {tt}{Colors.ENDC}")
+                    print(f"{Colors.SYSTEM_INFO}[turn cost] ${cost:.5f}{Colors.ENDC}")
+                    print(f"{Colors.SYSTEM_INFO}[total usage] prompt: {total_conversation_prompt_tokens}, completion: {total_conversation_completion_tokens}, total: {total_conversation_prompt_tokens + total_conversation_completion_tokens}{Colors.ENDC}")
+                    print(f"{Colors.SYSTEM_INFO}[total cost] ${total_conversation_cost:.5f}{Colors.ENDC}")
+                    
                     print(f"{Colors.HEADER}--- End of Agent's Detailed Actions ---{Colors.ENDC}")
                     
                     # The non-verbose summary part is removed as verbose is now default.
@@ -321,7 +399,7 @@ async def main():
 
                     print(f"\n{Colors.BOLD}{Colors.AGENT_PROMPT}Agent: {Colors.ENDC}")
                     print(f"{Colors.AGENT_MESSAGE}{result.final_output}{Colors.ENDC}")
-
+                    
                 except KeyboardInterrupt:
                     print(f"\n{Colors.SYSTEM_INFO}Exiting chat due to interrupt.{Colors.ENDC}")
                     break
