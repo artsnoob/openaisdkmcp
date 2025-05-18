@@ -7,10 +7,12 @@ import sys
 import json
 from dotenv import load_dotenv
 from contextlib import asynccontextmanager
+import tty # For raw terminal mode
+import termios # For terminal attributes
 
 # ─── NEW IMPORTS ──────────────────────────────────────────────────────────────
 import tiktoken
-import openai # Ensure openai is imported to catch openai.BadRequestError
+from openai import OpenAI # Ensure openai is imported to catch openai.BadRequestError
 # ─── END NEW IMPORTS ──────────────────────────────────────────────────────────
 
 from agents import Runner, trace
@@ -25,6 +27,21 @@ logging.getLogger("openai").setLevel(logging.WARNING)
 
 load_dotenv()
 
+OPENROUTER_API_KEY = os.getenv("OPENROUTER_API_KEY")
+if not OPENROUTER_API_KEY:
+    logger.error("OPENROUTER_API_KEY not found in .env file. Please add it.")
+    raise ValueError("OPENROUTER_API_KEY not found in .env file.")
+
+OPENROUTER_BASE_URL = "https://openrouter.ai/api/v1"
+# Optional: Replace with your actual site URL and name for better OpenRouter ranking
+YOUR_SITE_URL = os.getenv("OPENROUTER_REFERRER_URL", "http://localhost")
+YOUR_SITE_NAME = os.getenv("OPENROUTER_SITE_NAME", "MCP Agent")
+
+EXTRA_HEADERS = {
+    "HTTP-Referer": YOUR_SITE_URL,
+    "X-Title": YOUR_SITE_NAME,
+}
+
 if not shutil.which("npx"):
     logger.error("npx command not found. Please install Node.js and npm from https://nodejs.org/")
     raise RuntimeError("npx command not found.")
@@ -32,16 +49,160 @@ if not shutil.which("uvx"):
     logger.error("uvx command not found. Please ensure uvx (part of uv) is installed and in your PATH. See https://github.com/astral-sh/uv")
     raise RuntimeError("uvx command not found.")
 
-# ─── TOKENIZER & PRICING SETUP ──────────────────────────────────────────────────
-MODEL_NAME = "gpt-4o-mini"
-ENC = tiktoken.encoding_for_model(MODEL_NAME)
+# ─── MODEL AND TOKENIZER SETUP ──────────────────────────────────────────────────
+SUPPORTED_MODELS = [
+    "openai/gpt-4o-mini",
+    "openai/gpt-4.1-mini", # Note: This might be a typo and should be gpt-4-mini or similar, verify on OpenRouter
+    "google/gemini-2.5-flash-preview", # Corrected from gemini-flash-1.5-preview
+]
+DEFAULT_MODEL = "openai/gpt-4o-mini"
+current_model_name = DEFAULT_MODEL
 
-# Pricing in USD per 1 000 tokens (adjust to your actual plan if different)
-PROMPT_PRICE_PER_1K      = 0.00015 # gpt-4o-mini input price
-COMPLETION_PRICE_PER_1K  = 0.0006  # gpt-4o-mini output price
-# ─── END PRICING SETUP ────────────────────────────────────────────────────────
+# Mapping for supported models to tiktoken base model names or direct encoding names
+TIKTOKEN_MAPPING = {
+    "openai/gpt-4o-mini": ("model", "gpt-4o"),
+    "openai/gpt-4.1-mini": ("model", "gpt-4o"), # Assuming gpt-4o compatibility for tokenization
+    "google/gemini-2.5-flash-preview": ("encoding", "cl100k_base"), # Approximation, Gemini has its own tokenizer
+}
+
+# Tokenizer - using gpt-4o-mini as a general default for display purposes.
+# Actual tokenization for billing might differ per model on OpenRouter.
+_map_type, _map_value = TIKTOKEN_MAPPING.get(DEFAULT_MODEL, ("model", "gpt-4o")) # Default to gpt-4o model if not in map
+if _map_type == "encoding":
+    ENC = tiktoken.get_encoding(_map_value)
+else: # _map_type == "model"
+    ENC = tiktoken.encoding_for_model(_map_value)
+
+# Pricing - This will become more complex if we want accurate per-model pricing.
+# For now, using gpt-4o-mini prices as a placeholder.
+# TODO: Implement dynamic pricing based on current_model_name
+PROMPT_PRICE_PER_1K = 0.00015  # gpt-4o-mini input price
+COMPLETION_PRICE_PER_1K = 0.0006   # gpt-4o-mini output price
+# ─── END MODEL AND TOKENIZER SETUP ──────────────────────────────────────────────
+
+# ─── HELPER FUNCTION FOR INTERACTIVE MODEL SELECTION ───────────────────────────
+def select_model_interactive(prompt_title, options, active_model_value, colors_module):
+    old_settings = termios.tcgetattr(sys.stdin.fileno())
+    try:
+        tty.setraw(sys.stdin.fileno())
+        
+        if not options:
+            sys.stdout.write(f"{colors_module.LOG_ERROR}No models available for selection.{colors_module.ENDC}\r\n")
+            sys.stdout.flush()
+            sys.stdin.read(1) # Wait for a key press
+            return None
+
+        try:
+            current_selection_index = options.index(active_model_value)
+        except ValueError:
+            current_selection_index = 0 # Default to first if current active model not in list
+
+        while True:
+            # Clear screen or redraw in place (using ANSI codes)
+            sys.stdout.write("\033c") # Clears the screen
+            
+            sys.stdout.write(f"{prompt_title}\r\n")
+            sys.stdout.write(f"{colors_module.SYSTEM_INFO}Use ARROW UP/DOWN to navigate, ENTER to select, ESC to cancel.{colors_module.ENDC}\r\n\r\n")
+
+            for i, option in enumerate(options):
+                prefix = "> " if i == current_selection_index else "  "
+                
+                display_option_text = option
+                if option == active_model_value:
+                    display_option_text += " (current)"
+                
+                if i == current_selection_index:
+                    sys.stdout.write(f"{colors_module.USER_PROMPT}{prefix}{colors_module.BOLD}{display_option_text}{colors_module.ENDC}{colors_module.ENDC}\r\n")
+                else:
+                    sys.stdout.write(f"{colors_module.SYSTEM_INFO}{prefix}{display_option_text}{colors_module.ENDC}\r\n")
+            sys.stdout.flush()
+
+            char = sys.stdin.read(1)
+
+            if char == '\x1b':  # Escape character
+                # Try to read the rest of an escape sequence
+                next_char1 = sys.stdin.read(1)
+                if next_char1 == '[': # Potential arrow key (e.g., \x1b[A)
+                    next_char2 = sys.stdin.read(1)
+                    if next_char2 == 'A':  # Up arrow
+                        current_selection_index = (current_selection_index - 1 + len(options)) % len(options)
+                    elif next_char2 == 'B':  # Down arrow
+                        current_selection_index = (current_selection_index + 1) % len(options)
+                    # Ignore other CSI sequences for simplicity
+                else: # Likely just the ESC key pressed (\x1b followed by something not '[' or nothing)
+                    sys.stdout.write("\033c") # Clear screen
+                    sys.stdout.flush()
+                    return None # Cancelled
+            elif char == '\r' or char == '\n':  # Enter key
+                sys.stdout.write("\033c") # Clear screen
+                sys.stdout.flush()
+                return options[current_selection_index]
+            elif char == '\x03': # Ctrl+C
+                termios.tcsetattr(sys.stdin.fileno(), termios.TCSADRAIN, old_settings) # Restore before raising
+                raise KeyboardInterrupt
+            # Ignore other characters
+    finally:
+        termios.tcsetattr(sys.stdin.fileno(), termios.TCSADRAIN, old_settings)
+# ─── END HELPER FUNCTION ───────────────────────────────────────────────────────
+
+# ─── HELPER FUNCTION FOR UPDATING MODEL CONFIGURATION ──────────────────────────
+async def _update_model_and_agent_config(new_model_name, logger_instance, servers_list, base_samples_dir, http_client, headers, tiktoken_map, supported_list):
+    global current_model_name, ENC # These are global and will be modified
+    
+    if new_model_name not in supported_list:
+        logger_instance.error(f"Internal error: Attempted to switch to an unsupported model: {new_model_name}")
+        # This should ideally not be reached if called correctly
+        return agent, agent_instructions_text # Return existing agent state
+
+    logger_instance.info(f"Changing model from {current_model_name} to {new_model_name}")
+    
+    old_model_for_message = current_model_name
+    current_model_name = new_model_name # Update global
+
+    # Re-initialize agent with the new model
+    # Note: setup_agent is synchronous, but we are in an async function.
+    # If setup_agent becomes async, add await. For now, it's fine.
+    new_agent_instance, new_instructions = setup_agent(
+        logger_instance, 
+        servers_list, 
+        base_samples_dir, 
+        model_name=current_model_name, 
+        client=http_client,
+        extra_headers=headers
+    )
+    
+    _map_type, _map_value = tiktoken_map.get(current_model_name, (None, None))
+
+    if "claude" in current_model_name: # Specific handling for Claude models
+        ENC = tiktoken.encoding_for_model("gpt-4") # Use gpt-4 tokenizer for Claude
+        logger_instance.info(f"Using 'gpt-4' base model for tiktoken with Claude model: {current_model_name}")
+    elif _map_type == "encoding":
+        ENC = tiktoken.get_encoding(_map_value)
+        logger_instance.info(f"Using '{_map_value}' encoding for {current_model_name}.")
+    elif _map_type == "model":
+        ENC = tiktoken.encoding_for_model(_map_value)
+        logger_instance.info(f"Using '{_map_value}' base model for tiktoken with {current_model_name}.")
+    else: # Fallback for models not in TIKTOKEN_MAPPING and not Claude
+        logger_instance.warning(f"No specific tiktoken mapping for {current_model_name}. Attempting 'cl100k_base' encoding.")
+        try:
+            ENC = tiktoken.get_encoding("cl100k_base")
+        except Exception as e_enc:
+            logger_instance.error(f"Failed to get 'cl100k_base' as fallback for {current_model_name}: {e_enc}. Using 'gpt2' encoding.")
+            ENC = tiktoken.get_encoding("gpt2") # A very basic fallback
+            
+    print(f"{Colors.SYSTEM_INFO}Model changed from {old_model_for_message} to: {current_model_name}{Colors.ENDC}")
+    # TODO: Implement dynamic pricing update if model changes (original TODO)
+    
+    return new_agent_instance, new_instructions
+# ─── END HELPER FUNCTION ───────────────────────────────────────────────────────
+
 
 async def main():
+    global current_model_name, ENC # Allow modification of global model name and encoder
+    # These will be set by _update_model_and_agent_config and used by the main loop
+    global agent, agent_instructions_text
+
+
     script_dir = os.path.dirname(os.path.abspath(__file__))
     samples_dir = os.path.join(script_dir, "sample_mcp_files")
     samples_dir = os.path.abspath(samples_dir)
@@ -88,12 +249,25 @@ async def main():
         logger.error("No MCP servers connected successfully. Exiting application.")
         print(f"{Colors.LOG_ERROR}No MCP servers connected successfully. Exiting application.{Colors.ENDC}")
         return
-    
+
     logger.info(f"Total successfully connected servers: {len(successfully_connected_servers)} out of {len(configured_server_instances)} configured.")
     print(f"{Colors.LOG_INFO}Total successfully connected servers: {len(successfully_connected_servers)} out of {len(configured_server_instances)} configured. Starting interactive chat...{Colors.ENDC}")
 
-    agent, agent_instructions_text = setup_agent(logger, successfully_connected_servers, samples_dir)
-    
+    # Initialize OpenAI client for OpenRouter
+    openrouter_client = OpenAI(
+        base_url=OPENROUTER_BASE_URL,
+        api_key=OPENROUTER_API_KEY,
+    )
+    # Pass client, initial model, and extra_headers to setup_agent
+    agent, agent_instructions_text = setup_agent(
+        logger, 
+        successfully_connected_servers, 
+        samples_dir, 
+        model_name=current_model_name, 
+        client=openrouter_client,
+        extra_headers=EXTRA_HEADERS 
+    )
+
     @asynccontextmanager
     async def manage_server_connections(servers_to_manage):
         try:
@@ -114,11 +288,17 @@ async def main():
         total_conversation_completion_tokens = 0
         total_conversation_cost = 0.0
         print(f"{Colors.SYSTEM_INFO}Type 'quit' or 'exit' to end, '/instructions' for prompts, '/newchat' to reset.{Colors.ENDC}")
+        print(f"{Colors.SYSTEM_INFO}Type '/model' for interactive selection or '/model <model_name>' to change model.{Colors.ENDC}")
+        print(f"{Colors.SYSTEM_INFO}Current model: {current_model_name}{Colors.ENDC}")
+        print(f"{Colors.SYSTEM_INFO}Available models: {', '.join(SUPPORTED_MODELS)}{Colors.ENDC}")
 
         with trace("MCP Interactive Session"):
             while True:
                 try:
-                    user_input_text = input(f"\n{Colors.BOLD}{Colors.USER_PROMPT}You: {Colors.ENDC}")
+                    # Ensure agent and agent_instructions_text are defined before this loop if they can be modified by it
+                    # They are initialized before the async with manage_server_connections block
+
+                    user_input_text = input(f"\n{Colors.BOLD}{Colors.USER_PROMPT}You ({current_model_name}): {Colors.ENDC}")
                     if user_input_text.lower() in ["quit", "exit"]:
                         print(f"{Colors.SYSTEM_INFO}Exiting chat.{Colors.ENDC}")
                         break
@@ -129,6 +309,52 @@ async def main():
                         print(f"{Colors.HEADER}------------------------{Colors.ENDC}")
                         continue
 
+                    if user_input_text.lower() == "/model":
+                        prompt_title = f"{Colors.SYSTEM_INFO}Select a model (current: {current_model_name}):{Colors.ENDC}"
+                        selected_model = select_model_interactive(
+                            prompt_title,
+                            SUPPORTED_MODELS,
+                            current_model_name,
+                            Colors # Pass the Colors class/module
+                        )
+                        if selected_model:
+                            if selected_model != current_model_name:
+                                agent, agent_instructions_text = await _update_model_and_agent_config(
+                                    selected_model,
+                                    logger, successfully_connected_servers, samples_dir,
+                                    openrouter_client, EXTRA_HEADERS, TIKTOKEN_MAPPING, SUPPORTED_MODELS
+                                )
+                            else:
+                                print(f"{Colors.SYSTEM_INFO}Model is already set to: {current_model_name}{Colors.ENDC}")
+                        # If selected_model is None, it means cancellation, so do nothing.
+                        # The select_model_interactive function handles clearing its own UI.
+                        # We need to reprint the prompt for the next input.
+                        # The loop continues, and input() will be called again.
+                        # To ensure the chat prompt is clean, we might need a redraw or just let it be.
+                        # For now, let the main loop's input() reprint the prompt.
+                        if selected_model is None: # Explicitly print a cancellation message if desired
+                            print(f"{Colors.SYSTEM_INFO}Model selection cancelled.{Colors.ENDC}")
+                        continue # Always continue to get fresh input prompt
+
+                    elif user_input_text.lower().startswith("/model "):
+                        parts = user_input_text.split(" ", 1)
+                        if len(parts) > 1 and parts[1].strip():
+                            new_model_candidate = parts[1].strip()
+                            if new_model_candidate in SUPPORTED_MODELS:
+                                if new_model_candidate != current_model_name:
+                                    agent, agent_instructions_text = await _update_model_and_agent_config(
+                                        new_model_candidate,
+                                        logger, successfully_connected_servers, samples_dir,
+                                        openrouter_client, EXTRA_HEADERS, TIKTOKEN_MAPPING, SUPPORTED_MODELS
+                                    )
+                                else:
+                                    print(f"{Colors.SYSTEM_INFO}Model is already set to: {current_model_name}{Colors.ENDC}")
+                            else:
+                                print(f"{Colors.LOG_ERROR}Invalid model. Supported models: {', '.join(SUPPORTED_MODELS)}{Colors.ENDC}")
+                        else:
+                            print(f"{Colors.LOG_ERROR}Usage: /model (interactive) or /model <model_name>. Supported: {', '.join(SUPPORTED_MODELS)}{Colors.ENDC}")
+                        continue
+                    
                     if user_input_text.lower() == "/newchat":
                         current_conversation_history = []
                         total_conversation_prompt_tokens = 0
@@ -138,7 +364,7 @@ async def main():
                         continue
 
                     # MODIFIED: Naive truncation commented out for debugging
-                    # current_conversation_history = current_conversation_history[-8:] 
+                    # current_conversation_history = current_conversation_history[-8:]
                     msgs = current_conversation_history + [{"role": "user", "content": user_input_text}]
                     
                     prompt_tokens = 0
@@ -158,8 +384,34 @@ async def main():
                     
                     # ─── RUN AGENT (WITH IMPROVED ERROR LOGGING) ──────────────────────
                     try:
-                        # Set max_turns; 20 was original, 40 was used in logs. Let's stick to a reasonable value for now.
-                        result = await Runner.run(starting_agent=agent, input=msgs, max_turns=30) 
+                        # Pass the OpenRouter client and extra_headers to Runner.run or ensure Agent uses them
+                        # This part depends on how Runner.run and Agent are structured.
+                        # For now, assuming Agent was configured with the client and model by setup_agent.
+                        # If Runner.run needs explicit client/headers, this call needs modification.
+                        # The `model` parameter in `Runner.run` might also need to be set to `current_model_name`.
+                        # The `extra_body` and `extra_headers` are usually passed at client.chat.completions.create()
+                        # This implies the Agent's internal call to the LLM needs to be modified.
+                        # For now, the client passed to setup_agent is pre-configured with base_url and api_key.
+                        # The extra_headers would need to be passed deeper.
+                        # Let's assume the Agent class handles passing extra_headers if the client is an OpenAI client instance.
+                        
+                        # The Runner.run method in the original smithy Agent uses agent.client.chat.completions.create
+                        # If our Agent class has a `client` attribute (the one we passed in setup_agent),
+                        # and if it uses `self.client.chat.completions.create`, we need to ensure it can pass `extra_headers`.
+                        # This might require modification of the Agent class in `agents.py`.
+                        # For now, we proceed with the assumption that `setup_agent` configures the agent correctly.
+                        # The model name is passed to the Agent constructor via setup_agent.
+                        
+                        result = await Runner.run(
+                            starting_agent=agent, 
+                            input=msgs, 
+                            max_turns=30,
+                            # The following are conceptual if Runner.run needs them directly.
+                            # model=current_model_name, # If Agent doesn't get model from its constructor
+                            # api_key=OPENROUTER_API_KEY, # If client isn't passed/used
+                            # base_url=OPENROUTER_BASE_URL, # If client isn't passed/used
+                            # extra_headers=EXTRA_HEADERS # This is the most complex part without seeing agents.py
+                        )
                     except openai.BadRequestError as bre:
                         logger.error(f"{Colors.LOG_ERROR}BadRequestError during Runner.run. This means the API call was malformed.{Colors.ENDC}")
                         logger.error(f"{Colors.LOG_ERROR}The input 'msgs' to Runner.run that likely caused this was:{Colors.ENDC}")

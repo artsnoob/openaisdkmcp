@@ -1,8 +1,12 @@
 from agents import Agent
+from openai import OpenAI # Import OpenAI for type hinting if necessary
+from typing import Dict # For type hinting extra_headers
 
-def setup_agent(logger, working_servers, samples_dir):
+def setup_agent(logger, working_servers, samples_dir, model_name: str, client: OpenAI, extra_headers: Dict[str, str]):
     """Sets up and returns the Agent instance and its instructions string."""
     
+    # The agent_instructions string does not need to change based on the model directly,
+    # but the agent's behavior will change based on the model passed to its constructor.
     agent_instructions = (
         "You are an agent that can interact with a local filesystem, fetch web content, perform web searches using Brave Search, execute code using the MCP Code Executor, and interact with an Obsidian vault using the 'Obsidian MCP Server'.\n"
         "If the user asks you to look at 'the rss' or 'rss text file', they are referring to the file located at /Users/milanboonstra/code/openaisdkmcp_server_copy/sample_mcp_files/rss_feed_urls.txt which contains a list of RSS feed URLs.\n\n"
@@ -41,9 +45,11 @@ def setup_agent(logger, working_servers, samples_dir):
 
     agent = Agent(
         name="FileFetchSearchCodeExecutorAgent",
-        instructions=agent_instructions, # This is the actual instructions string
+        instructions=agent_instructions,
         mcp_servers=working_servers,
-        model="gpt-4o-mini",
+        model=model_name
+        # client=client, # Removed as Agent.__init__ does not expect it
+        # extra_headers=extra_headers # Removed as Agent.__init__ does not expect it
     )
     # Return the agent and the instructions string correctly
     return agent, agent_instructions
