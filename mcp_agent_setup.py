@@ -4,7 +4,8 @@ def setup_agent(logger, working_servers, samples_dir):
     """Sets up and returns the Agent instance and its instructions string."""
     
     agent_instructions = (
-        "You are an agent that can interact with a local filesystem, fetch web content, perform web searches using Brave Search, execute code using the MCP Code Executor, and interact with an Obsidian vault using the 'Obsidian MCP Server'.\n\n"
+        "You are an agent that can interact with a local filesystem, fetch web content, perform web searches using Brave Search, execute code using the MCP Code Executor, and interact with an Obsidian vault using the 'Obsidian MCP Server'.\n"
+        "If the user asks you to look at 'the rss' or 'rss text file', they are referring to the file located at /Users/milanboonstra/code/openaisdkmcp_server_copy/sample_mcp_files/rss_feed_urls.txt which contains a list of RSS feed URLs.\n\n"
         "IMPORTANT OBSIDIAN VAULT INSTRUCTIONS:\n"
         "When a query mentions 'Obsidian', your 'vault', 'notes', or refers to a path structure like '/vault/some/folder', 'a_folder_in_obsidian', or asks to explore parts of your Obsidian vault, you MUST prioritize using the Obsidian MCP Server tools. These tools are `search_notes` (to find notes, including by path fragments like 'foldername/' or 'foldername/subfoldername/') and `read_notes` (to read specific notes found by `search_notes`).\n"
         "Do NOT use general filesystem tools like `list_directory` or `directory_tree` for Obsidian vault content. The Obsidian server handles paths internally (e.g., `/vault/My Note.md`).\n\n"
