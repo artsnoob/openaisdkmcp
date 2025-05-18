@@ -22,7 +22,8 @@ EXTRA_HEADERS = {
 SUPPORTED_MODELS = [
     "openai/gpt-4o-mini",
     "openai/gpt-4.1-mini", # Note: This might be a typo and should be gpt-4-mini or similar, verify on OpenRouter
-    "google/gemini-2.5-flash-preview",
+    "openai/gpt-4.1-nano",
+    "openai/o4-mini",
 ]
 DEFAULT_MODEL = "openai/gpt-4o-mini"
 
@@ -30,7 +31,8 @@ DEFAULT_MODEL = "openai/gpt-4o-mini"
 TIKTOKEN_MAPPING = {
     "openai/gpt-4o-mini": ("model", "gpt-4o"),
     "openai/gpt-4.1-mini": ("model", "gpt-4o"), # Assuming gpt-4o compatibility
-    "google/gemini-2.5-flash-preview": ("encoding", "cl100k_base"), # Approximation
+    "openai/gpt-4.1-nano": ("model", "gpt-4o"), # Assuming gpt-4o compatibility
+    "openai/o4-mini": ("model", "gpt-4o"),      # Assuming gpt-4o compatibility
 }
 
 # ─── PRICING CONFIGURATION (Placeholder for gpt-4o-mini) ────────────────────
