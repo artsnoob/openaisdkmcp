@@ -94,6 +94,21 @@ async def configure_servers(logger, script_dir, samples_dir):
         cache_tools_list=True,
     )
 
+    # Configure the Perplexity MCP server
+    mcp_server_perplexity = MCPServerStdio(
+        name="Perplexity MCP Server",
+        params={
+            "command": "node",
+            "args": ["/Users/milanboonstra/Documents/Cline/MCP/perplexity-mcp/build/index.js"],
+            "env": {
+                "PERPLEXITY_API_KEY": os.getenv("PERPLEXITY_API_KEY"),
+                "NODE_NO_WARNINGS": "1"
+            }
+        },
+        cache_tools_list=True,
+        client_session_timeout_seconds=60, # Increased timeout for Perplexity server
+    )
+
     all_configured_servers = [
         mcp_server_python,
         mcp_server_filesystem,
@@ -101,6 +116,7 @@ async def configure_servers(logger, script_dir, samples_dir):
         mcp_server_brave,
         mcp_server_obsidian,
         mcp_server_telegram, # Added Telegram server
+        mcp_server_perplexity,
     ]
     
     logger.info(f"Configured {len(all_configured_servers)} MCP server instances. Connection attempts will be made by the agent.")
