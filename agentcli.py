@@ -9,6 +9,7 @@ from contextlib import asynccontextmanager
 # tty, termios, tiktoken are not directly needed here anymore, handled by submodules
 import openai # Import the openai module itself for accessing openai.BadRequestError
 from openai import OpenAI # Ensure openai is imported to catch openai.BadRequestError
+from openai.types.responses import ResponseTextDeltaEvent # For streaming
 
 # --- EARLY .ENV LOADING ---
 # Determine the path to the .env file relative to this script and load it EARLY.
@@ -328,15 +329,69 @@ async def main():
                     print(f"{Colors.SYSTEM_INFO}[tokens] prompt: {prompt_tokens}{Colors.ENDC}")
                     print(f"{Colors.SYSTEM_INFO}Agent is processing...{Colors.ENDC}")
                     
+                    # Initialize a counter for streamed steps that we want to detail
+                    streamed_step_counter = 0
+                    # Accumulate text for final display if needed, and for history
+                    final_streamed_output_text = ""
+                    # Store structured events if needed for history reconstruction
+                    accumulated_structured_events = []
+
                     try:
-                        result = await Runner.run(
-                            starting_agent=agent, 
+                        # Changed to run_streamed
+                        # Pass agent as a positional argument, then input and max_turns as keyword arguments
+                        result = Runner.run_streamed(
+                            agent, # Positional
                             input=msgs, 
                             max_turns=30
                         )
-                    except openai.BadRequestError as bre: # Changed OpenAI.BadRequestError to openai.BadRequestError
-                        logger.error(f"{Colors.LOG_ERROR}BadRequestError during Runner.run. This means the API call was malformed.{Colors.ENDC}")
-                        logger.error(f"{Colors.LOG_ERROR}The input 'msgs' to Runner.run that likely caused this was:{Colors.ENDC}")
+
+                        print(f"\n{Colors.HEADER}--- Agent's Live Actions (Streaming) ---{Colors.ENDC}")
+                        async for event in result.stream_events():
+                            if event.type == "raw_response_event" and isinstance(event.data, ResponseTextDeltaEvent):
+                                if event.data.delta:
+                                    print(event.data.delta, end="", flush=True)
+                                    final_streamed_output_text += event.data.delta
+                            elif event.type == "run_item_stream_event": # Example from docs for structured items
+                                # This is where we'd print more detailed step info
+                                streamed_step_counter += 1
+                                # print_streamed_step_details(event, streamed_step_counter, Colors, logger, indent_multiline_text, json)
+                                # For now, just a basic print:
+                                print(f"\n{Colors.SYSTEM_INFO}Streamed Item (Step {streamed_step_counter}): {event.item.type}{Colors.ENDC}")
+                                accumulated_structured_events.append(event.item) # Store for potential history
+                            elif event.type == "agent_updated_stream_event":
+                                print(f"\n{Colors.SYSTEM_INFO}Agent updated to: {event.new_agent.name}{Colors.ENDC}")
+                            # Add other event type handling as needed based on documentation and testing
+                            # else:
+                                # print(f"\nDebug Event: Type: {event.type}, Data: {event.data}")
+
+
+                        # After stream is complete, print a newline if text was streamed
+                        if final_streamed_output_text:
+                            print() # Newline after streamed text
+
+                        # The 'result' from run_streamed is RunResultStreaming.
+                        # We need to get the final result, often by calling a method on it.
+                        # Let's assume it has a way to get the final state, e.g. by awaiting the result itself
+                        # or calling a specific method. The SDK docs should clarify this.
+                        # For now, we'll assume `await result.get_final_result()` or similar is needed
+                        # if `result.to_input_list()` or `result.usage` are not directly available
+                        # on RunResultStreaming and need the run to be fully processed.
+                        # This part is a placeholder and might need adjustment:
+                        
+                        # If RunResultStreaming itself has these, great. Otherwise, we might need:
+                        # final_run_result = await result.full_run() # Or similar, per SDK docs
+                        # current_conversation_history = final_run_result.to_input_list()
+                        # usage_info = final_run_result.usage 
+                        # For now, let's assume result (RunResultStreaming) has them directly or via a property
+                        
+                        # Placeholder for final output if not captured by streaming text delta
+                        if not final_streamed_output_text and hasattr(result, 'final_output') and result.final_output:
+                             final_streamed_output_text = result.final_output if isinstance(result.final_output, str) else str(result.final_output)
+
+
+                    except openai.BadRequestError as bre:
+                        logger.error(f"{Colors.LOG_ERROR}BadRequestError during Runner.run_streamed. This means the API call was malformed.{Colors.ENDC}")
+                        logger.error(f"{Colors.LOG_ERROR}The input 'msgs' to Runner.run_streamed that likely caused this was:{Colors.ENDC}")
                         try:
                             pretty_msgs = json.dumps(msgs, indent=2, default=str)
                             logger.error(f"\n{Colors.CODE_ERROR}{indent_multiline_text(pretty_msgs, '  ')}{Colors.ENDC}")
@@ -379,13 +434,40 @@ async def main():
                     total_conversation_completion_tokens += ct
                     total_conversation_cost += cost
                     
-                    print(f"\n{Colors.HEADER}--- Agent's Detailed Actions ---{Colors.ENDC}")
-                    if hasattr(result, 'raw_responses') and result.raw_responses:
-                        for step_idx, raw_model_response_item in enumerate(result.raw_responses):
-                            print_single_raw_response_step(step_idx + 1, raw_model_response_item, Colors, logger, indent_multiline_text, json)
-                    print(f"{Colors.HEADER}--- End of Agent's Detailed Actions ---{Colors.ENDC}")
+                    # Temporarily comment out the old detailed actions block
+                    # print(f"\n{Colors.HEADER}--- Agent's Detailed Actions ---{Colors.ENDC}")
+                    # if hasattr(result, 'raw_responses') and result.raw_responses:
+                    #     for step_idx, raw_model_response_item in enumerate(result.raw_responses):
+                    #         print_single_raw_response_step(step_idx + 1, raw_model_response_item, Colors, logger, indent_multiline_text, json)
+                    # print(f"{Colors.HEADER}--- End of Agent's Detailed Actions ---{Colors.ENDC}")
                     
+                    # The conversation history and final output handling will need adjustment
+                    # based on how RunResultStreaming provides this information.
+                    # For now, we'll use the accumulated text as the final output.
+                    # And current_conversation_history might need to be reconstructed or obtained differently.
+                    
+                    # Attempt to get conversation history. This might need `await result.full_run()` first.
+                    # This is a critical point that depends on the SDK's API for RunResultStreaming.
+                    try:
+                        current_conversation_history = result.to_input_list()
+                        # If `result.usage` is not directly available, we might need to get it from a final result object.
+                        # For now, we proceed assuming it might be there or calculated as before.
+                    except AttributeError:
+                        logger.warning("RunResultStreaming does not have to_input_list directly. History might be incomplete or require full_run().")
+                        # Fallback: construct a minimal history or use the old one if appropriate (though likely stale)
+                        # This part needs robust handling based on SDK.
+                        # For now, if it fails, history printing will be affected.
+                        # We might need to manually append the final_streamed_output_text to history.
+                        if final_streamed_output_text:
+                             current_conversation_history.append({"role": "assistant", "content": final_streamed_output_text})
+
+
                     print(f"\n{Colors.SYSTEM_INFO}--- Processed Conversation History (SDK Messages) ---{Colors.ENDC}")
+                    if not current_conversation_history and hasattr(result, '_previous_result_for_history_only_for_debugging'): # Example of a potential internal
+                        logger.warning("Using a debug/internal attribute for history. This is not robust.")
+                        current_conversation_history = result._previous_result_for_history_only_for_debugging.to_input_list()
+
+
                     for hist_idx, hist_item in enumerate(current_conversation_history):
                         role = hist_item.get('role')
                         item_type = hist_item.get('type') 
@@ -508,7 +590,8 @@ async def main():
                     print(f"{Colors.SYSTEM_INFO}[total cost] ${total_conversation_cost:.5f}{Colors.ENDC}")
                     
                     print(f"\n{Colors.BOLD}{Colors.AGENT_PROMPT}Agent: {Colors.ENDC}")
-                    print(f"{Colors.AGENT_MESSAGE}{result.final_output}{Colors.ENDC}")
+                    # Use the accumulated streamed text as the primary final output
+                    print(f"{Colors.AGENT_MESSAGE}{final_streamed_output_text or (result.final_output if hasattr(result, 'final_output') else 'No output')}{Colors.ENDC}")
                     
                 except KeyboardInterrupt:
                     print(f"\n{Colors.SYSTEM_INFO}Exiting chat due to interrupt.{Colors.ENDC}")
