@@ -10,6 +10,9 @@ if not OPENROUTER_API_KEY:
     pass
 
 OPENROUTER_BASE_URL = "https://openrouter.ai/api/v1"
+OLLAMA_BASE_URL = os.getenv("OLLAMA_BASE_URL", "http://localhost:11434/v1") # Default Ollama URL (with /v1)
+OLLAMA_API_KEY = os.getenv("OLLAMA_API_KEY", "ollama") # Placeholder, Ollama might not need a key
+
 YOUR_SITE_URL = os.getenv("OPENROUTER_REFERRER_URL", "http://localhost")
 YOUR_SITE_NAME = os.getenv("OPENROUTER_SITE_NAME", "MCP Agent")
 
@@ -24,6 +27,9 @@ SUPPORTED_MODELS = [
     "openai/gpt-4.1-mini",
     "openai/gpt-4.1-nano",
     "openai/o4-mini",
+    "ollama/phi4-mini:latest", # Updated to include :latest tag
+    "ollama/phi3:latest",           # Added example
+    "ollama/mistral",          # Added example
 ]
 DEFAULT_MODEL = "openai/gpt-4o-mini"
 
@@ -33,12 +39,24 @@ TIKTOKEN_MAPPING = {
     "openai/gpt-4.1-mini": ("model", "gpt-4o"), # Assuming gpt-4o compatibility
     "openai/gpt-4.1-nano": ("model", "gpt-4o"), # Assuming gpt-4o compatibility
     "openai/o4-mini": ("model", "gpt-4o"),      # Assuming gpt-4o compatibility
+    "ollama/phi4-mini:latest": ("model", "gpt-4o"), # Updated key and added example
+    "ollama/phi3:latest": ("model", "gpt-4o"),           # Added example
+    "ollama/mistral": ("model", "gpt-4o"),          # Added example
 }
 
-# ─── PRICING CONFIGURATION (Placeholder for gpt-4o-mini) ────────────────────
+# ─── PRICING CONFIGURATION ────────────────────────────────────────────────────
 # TODO: Implement dynamic pricing based on current_model_name
-PROMPT_PRICE_PER_1K = 0.00015  # gpt-4o-mini input price
-COMPLETION_PRICE_PER_1K = 0.0006   # gpt-4o-mini output price
+# Prices for OpenAI models (example for gpt-4o-mini)
+OPENAI_PROMPT_PRICE_PER_1K = 0.00015
+OPENAI_COMPLETION_PRICE_PER_1K = 0.0006
+
+# Prices for Ollama models (locally run, so effectively free)
+OLLAMA_PROMPT_PRICE_PER_1K = 0.0
+OLLAMA_COMPLETION_PRICE_PER_1K = 0.0
+
+# Default to OpenAI prices, will be overridden if an Ollama model is selected
+PROMPT_PRICE_PER_1K = OPENAI_PROMPT_PRICE_PER_1K
+COMPLETION_PRICE_PER_1K = OPENAI_COMPLETION_PRICE_PER_1K
 
 # ─── TOKENIZER INITIALIZATION FUNCTION ────────────────────────────────────────
 def initialize_tokenizer(model_name: str, tiktoken_map: dict, logger_instance: logging.Logger) -> tiktoken.Encoding:

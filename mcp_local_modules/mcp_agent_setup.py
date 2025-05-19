@@ -2,7 +2,7 @@ from agents import Agent
 from openai import OpenAI # Import OpenAI for type hinting if necessary
 from typing import Dict # For type hinting extra_headers
 
-def setup_agent(logger, working_servers, samples_dir, model_name: str, client: OpenAI, extra_headers: Dict[str, str]):
+def setup_agent(logger, working_servers, samples_dir, model_name: str, client: OpenAI, extra_headers: Dict[str, str] = None):
     """Sets up and returns the Agent instance and its instructions string."""
     
     # The agent_instructions string does not need to change based on the model directly,
@@ -12,7 +12,7 @@ def setup_agent(logger, working_servers, samples_dir, model_name: str, client: O
         "When using the Telegram server's `send_message` tool, the `chat_id` parameter is optional. If you omit it, the message will be sent to a pre-configured default chat. You generally do not need to ask the user for a chat ID unless they specify a different recipient.\n"
         "If the user asks you to look at 'the rss' or 'rss text file', they are referring to the file located at /Users/milanboonstra/code/openaisdkmcp_server_copy/sample_mcp_files/rss_feed_urls.txt which contains a list of RSS feed URLs.\n\n"
         "PERPLEXITY MCP SERVER:\n"
-        "The Perplexity MCP Server provides tools for in-depth research and conversational AI. You can use `chat_perplexity` for ongoing conversations, `search` for general queries, `get_documentation` for specific tech info, `find_apis` to discover APIs, and `check_deprecated_code` to verify code snippets. Use these tools when complex research, detailed explanations, or finding specific technical information is required.\n\n"
+        "The Perplexity MCP Server provides tools for in-depth research and conversational AI. You can use `chat_perplexity` for ongoing conversations, `search` for general queries, `get_documentation` for specific tech info, `find_apis` to discover APIs, and `check_deprecated_code` to verify code snippets. Use these tools when complex research, detailed explanations, or finding specific technical information is required.Please always include URL's for the sources.\n\n"
         "IMPORTANT OBSIDIAN VAULT INSTRUCTIONS:\n"
         "When a query mentions 'Obsidian', your 'vault', 'notes', or refers to a path structure like '/vault/some/folder', 'a_folder_in_obsidian', or asks to explore parts of your Obsidian vault, you MUST prioritize using the Obsidian MCP Server tools. These tools are `search_notes` (to find notes, including by path fragments like 'foldername/' or 'foldername/subfoldername/') and `read_notes` (to read specific notes found by `search_notes`).\n"
         "Do NOT use general filesystem tools like `list_directory` or `directory_tree` for Obsidian vault content. The Obsidian server handles paths internally (e.g., `/vault/My Note.md`).\n\n"
@@ -46,13 +46,23 @@ def setup_agent(logger, working_servers, samples_dir, model_name: str, client: O
         "   - **Remember to `import json` and `print(json.dumps(extracted_articles_list))` at the end of your script when returning a list of articles.**"
     )
 
-    agent = Agent(
-        name="FileFetchSearchCodeExecutorAgent",
-        instructions=agent_instructions,
-        mcp_servers=working_servers,
-        model=model_name
-        # client=client, # Removed as Agent.__init__ does not expect it
-        # extra_headers=extra_headers # Removed as Agent.__init__ does not expect it
-    )
+    # Check if the Agent class accepts a client parameter
+    try:
+        agent = Agent(
+            name="FileFetchSearchCodeExecutorAgent",
+            instructions=agent_instructions,
+            mcp_servers=working_servers,
+            model=model_name,
+            client=client  # Try passing the client
+        )
+    except TypeError as e:
+        # If client is not accepted, fall back to the original approach
+        logger.warning(f"Agent.__init__ does not accept client parameter: {e}")
+        agent = Agent(
+            name="FileFetchSearchCodeExecutorAgent",
+            instructions=agent_instructions,
+            mcp_servers=working_servers,
+            model=model_name
+        )
     # Return the agent and the instructions string correctly
     return agent, agent_instructions
