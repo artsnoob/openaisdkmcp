@@ -78,12 +78,29 @@ async def configure_servers(logger, script_dir, samples_dir):
         cache_tools_list=True,
     )
 
+    # Configure the Telegram MCP server
+    # logger.info("Configuring Telegram MCP server...") # Reduced verbosity
+    mcp_server_telegram = MCPServerStdio(
+        name="Telegram MCP Server",
+        params={
+            "command": "node",
+            "args": ["/Users/milanboonstra/Documents/Cline/MCP/telegram-server/build/index.js"],
+            "env": {
+                "TELEGRAM_BOT_TOKEN": os.getenv("TELEGRAM_BOT_TOKEN", ""), # Default to empty string if not set
+                "DEFAULT_CHAT_ID": os.getenv("DEFAULT_CHAT_ID", os.getenv("TELEGRAM_CHAT_ID", "")), # Use DEFAULT_CHAT_ID
+                "NODE_NO_WARNINGS": "1"
+            }
+        },
+        cache_tools_list=True,
+    )
+
     all_configured_servers = [
         mcp_server_python,
         mcp_server_filesystem,
         mcp_server_fetch,
         mcp_server_brave,
         mcp_server_obsidian,
+        mcp_server_telegram, # Added Telegram server
     ]
     
     logger.info(f"Configured {len(all_configured_servers)} MCP server instances. Connection attempts will be made by the agent.")
