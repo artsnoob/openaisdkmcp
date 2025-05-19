@@ -7,6 +7,7 @@ import json
 from dotenv import load_dotenv # Keep this import at the top
 from contextlib import asynccontextmanager
 # tty, termios, tiktoken are not directly needed here anymore, handled by submodules
+import openai # Import the openai module itself for accessing openai.BadRequestError
 from openai import OpenAI # Ensure openai is imported to catch openai.BadRequestError
 
 # --- EARLY .ENV LOADING ---
@@ -253,7 +254,7 @@ async def main():
                             input=msgs, 
                             max_turns=30,
                         )
-                    except OpenAI.BadRequestError as bre: # Use OpenAI.BadRequestError
+                    except openai.BadRequestError as bre: # Changed OpenAI.BadRequestError to openai.BadRequestError
                         logger.error(f"{Colors.LOG_ERROR}BadRequestError during Runner.run. This means the API call was malformed.{Colors.ENDC}")
                         logger.error(f"{Colors.LOG_ERROR}The input 'msgs' to Runner.run that likely caused this was:{Colors.ENDC}")
                         try:
