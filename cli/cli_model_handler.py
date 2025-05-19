@@ -2,9 +2,9 @@ import logging
 from typing import List, Tuple, Any, Dict, Optional # Any for agent, http_client, servers_list
 import tiktoken
 
-from mcp_agent_setup import setup_agent # For re-initializing the agent
-from mcp_utils import Colors # For printing colored messages
-from cli_config import initialize_tokenizer # For re-initializing the tokenizer
+from mcp_local_modules.mcp_agent_setup import setup_agent # For re-initializing the agent
+from mcp_local_modules.mcp_utils import Colors # For printing colored messages
+from .cli_config import initialize_tokenizer # For re-initializing the tokenizer
 
 # Globals that will be managed by this module, similar to how they were in agentcli.py
 # These are intended to be updated by _update_model_and_agent_config and accessed by the main CLI.

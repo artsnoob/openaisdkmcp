@@ -1,6 +1,6 @@
 import os
-from agents.mcp import MCPServerStdio
-from mcp_utils import Colors # For printing status messages
+from agents.mcp.server import MCPServerStdio # Updated import path
+from mcp_local_modules.mcp_utils import Colors # For printing status messages
 import os # Ensure os is imported if not already
 
 async def configure_servers(logger, script_dir, samples_dir):

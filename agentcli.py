@@ -27,12 +27,12 @@ else:
 
 # --- LOCAL MODULE IMPORTS (AFTER .ENV LOAD) ---
 from agents import Runner, trace # Assuming Runner is the correct class providing the run method
-from mcp_utils import Colors, setup_colored_logger, install_basic_packages, ensure_venv_exists, indent_multiline_text
-from mcp_server_config import configure_servers
-from mcp_agent_setup import setup_agent
-import cli_config # Now this should pick up the env var correctly
-from cli_ui import select_model_interactive
-import cli_model_handler
+from mcp_local_modules.mcp_utils import Colors, setup_colored_logger, install_basic_packages, ensure_venv_exists, indent_multiline_text
+from mcp_local_modules.mcp_server_config import configure_servers
+from mcp_local_modules.mcp_agent_setup import setup_agent
+from cli import cli_config # Now this should pick up the env var correctly
+from cli.cli_ui import select_model_interactive
+from cli import cli_model_handler
 
 # --- LOGGER SETUP ---
 logger = setup_colored_logger(__name__)

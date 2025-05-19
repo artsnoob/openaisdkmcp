@@ -5,9 +5,9 @@ from typing import List, Optional, Any # Any for Colors module/class
 
 # ─── HELPER FUNCTION FOR INTERACTIVE MODEL SELECTION ───────────────────────────
 def select_model_interactive(
-    prompt_title: str, 
-    options: List[str], 
-    active_model_value: str, 
+    prompt_title: str,
+    options: List[str],
+    active_model_value: str,
     colors_module: Any # Using Any to represent the Colors class/module passed in
 ) -> Optional[str]:
     """
@@ -17,12 +17,12 @@ def select_model_interactive(
     old_settings = termios.tcgetattr(sys.stdin.fileno())
     try:
         tty.setraw(sys.stdin.fileno())
-        
+
         if not options:
             sys.stdout.write(f"{colors_module.LOG_ERROR}No models available for selection.{colors_module.ENDC}\r\n")
             sys.stdout.flush()
             # Wait for a key press before returning, to allow user to see the message
-            sys.stdin.read(1) 
+            sys.stdin.read(1)
             return None
 
         try:
@@ -30,23 +30,23 @@ def select_model_interactive(
         except ValueError:
             # If active_model_value is not in options (e.g., if it was removed or is invalid),
             # default to the first option.
-            current_selection_index = 0 
+            current_selection_index = 0
 
         while True:
             # Clear screen or redraw in place (using ANSI codes)
             # \033c is a common sequence for resetting the terminal, often clearing it.
-            sys.stdout.write("\033c") 
-            
+            sys.stdout.write("\033c")
+
             sys.stdout.write(f"{prompt_title}\r\n")
             sys.stdout.write(f"{colors_module.SYSTEM_INFO}Use ARROW UP/DOWN to navigate, ENTER to select, ESC to cancel.{colors_module.ENDC}\r\n\r\n")
 
             for i, option in enumerate(options):
                 prefix = "> " if i == current_selection_index else "  "
-                
+
                 display_option_text = option
                 if option == active_model_value:
                     display_option_text += " (current)"
-                
+
                 if i == current_selection_index:
                     # Highlight the current selection
                     sys.stdout.write(f"{colors_module.USER_PROMPT}{prefix}{colors_module.BOLD}{display_option_text}{colors_module.ENDC}{colors_module.ENDC}\r\n")
@@ -84,3 +84,4 @@ def select_model_interactive(
         # Always restore terminal settings
         termios.tcsetattr(sys.stdin.fileno(), termios.TCSADRAIN, old_settings)
 # ─── END HELPER FUNCTION ───────────────────────────────────────────────────────
+from mcp_local_modules.mcp_utils import Colors # For printing colored messages

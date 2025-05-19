@@ -13,9 +13,9 @@ from flask import Flask, request, jsonify, send_from_directory
 import concurrent.futures # For TimeoutError with future.result()
 
 from agents import Runner, trace, set_tracing_disabled # Import set_tracing_disabled
-from mcp_utils import Colors, setup_colored_logger, install_basic_packages, ensure_venv_exists
-from mcp_server_config import configure_servers
-from mcp_agent_setup import setup_agent
+from mcp_local_modules.mcp_utils import Colors, setup_colored_logger, install_basic_packages, ensure_venv_exists
+from mcp_local_modules.mcp_server_config import configure_servers
+from mcp_local_modules.mcp_agent_setup import setup_agent
 
 # Attempt to disable tracing globally
 set_tracing_disabled(True)
