@@ -21,7 +21,7 @@ EXTRA_HEADERS = {
 # ─── MODEL DEFINITIONS AND MAPPINGS ───────────────────────────────────────────
 SUPPORTED_MODELS = [
     "openai/gpt-4o-mini",
-    "openai/gpt-4.1-mini", # Note: This might be a typo and should be gpt-4-mini or similar, verify on OpenRouter
+    "openai/gpt-4.1-mini",
     "openai/gpt-4.1-nano",
     "openai/o4-mini",
 ]
