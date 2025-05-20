@@ -12,6 +12,7 @@ This project appears to be a server and client implementation for the Model Cont
 *   **Local MCP Modules:** Python modules (`mcp_local_modules/`) for handling MCP setup, configuration, and utility functions.
 *   **Documentation:** Contains project-related documentation in the `docs/` directory.
 *   **Sample MCP Files:** Includes example files related to MCP in `sample_mcp_files/`.
+*   **Ollama Agent Support:** Local Ollama models are routed through the OpenAI Agents SDK so they behave the same as remote OpenAI models.
 
 ## Project Structure
 
