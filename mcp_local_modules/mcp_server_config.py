@@ -108,6 +108,17 @@ async def configure_servers(logger, script_dir, samples_dir):
         cache_tools_list=True,
         client_session_timeout_seconds=60, # Increased timeout for Perplexity server
     )
+    
+    # Configure the Context7 MCP server
+    mcp_server_context7 = MCPServerStdio(
+        name="Context7 Server",
+        params={
+            "command": "npx",
+            "args": ["-y", "@upstash/context7-mcp@latest"],
+            "env": {"NODE_NO_WARNINGS": "1"}
+        },
+        cache_tools_list=True,
+    )
 
     all_configured_servers = [
         mcp_server_python,
@@ -117,6 +128,7 @@ async def configure_servers(logger, script_dir, samples_dir):
         mcp_server_obsidian,
         mcp_server_telegram, # Added Telegram server
         mcp_server_perplexity,
+        mcp_server_context7, # Added Context7 server
     ]
     
     logger.info(f"Configured {len(all_configured_servers)} MCP server instances. Connection attempts will be made by the agent.")
