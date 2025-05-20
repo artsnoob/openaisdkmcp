@@ -69,87 +69,52 @@ agent_instructions_text: str = ""
 
 # Function to handle Ollama models directly without using the Agent framework
 async def handle_ollama_chat(model_name, msgs, logger_instance, enc):
-    """
-    Handles chat with Ollama models directly using the OpenAI client.
-    
-    Args:
-        model_name: The name of the Ollama model (e.g., "phi4-mini:latest")
-        msgs: The conversation history
-        logger_instance: The logger instance
-        enc: The tokenizer for token counting
-        
-    Returns:
-        A tuple containing:
-        - The assistant's response
-        - The number of prompt tokens
-        - The number of completion tokens
-    """
-    # Create a client for Ollama
-    client = OpenAI(
-        base_url=cli_config.OLLAMA_BASE_URL,
-        api_key="ollama"  # Dummy API key
-    )
-    
+    """Handle chat with Ollama models via the OpenAI-compatible API."""
+    client = OpenAI(base_url=cli_config.OLLAMA_BASE_URL, api_key="ollama")
     logger_instance.info(f"Using direct Ollama chat with model: {model_name}")
-    
-    # Convert the message format to what Ollama expects
+
     converted_msgs = []
     for msg in msgs:
-        # Check if the message has the expected format
         if isinstance(msg, dict) and "role" in msg and "content" in msg:
-            # Check if content is a string
             if isinstance(msg["content"], str):
-                converted_msgs.append({
-                    "role": msg["role"],
-                    "content": msg["content"]
-                })
-            # Check if content is a list (complex message format)
+                converted_msgs.append({"role": msg["role"], "content": msg["content"]})
             elif isinstance(msg["content"], list):
-                # Extract text content from the list
-                text_content = ""
-                for content_item in msg["content"]:
-                    if isinstance(content_item, dict) and content_item.get("type") == "text":
-                        text_content += content_item.get("text", "")
-                
+                text_content = "".join(
+                    item.get("text", "")
+                    for item in msg["content"]
+                    if isinstance(item, dict) and item.get("type") == "text"
+                )
                 if text_content:
-                    converted_msgs.append({
-                        "role": msg["role"],
-                        "content": text_content
-                    })
-    
-    logger_instance.info(f"Converted {len(msgs)} messages to {len(converted_msgs)} messages for Ollama")
-    
+                    converted_msgs.append({"role": msg["role"], "content": text_content})
+
+    logger_instance.info(
+        f"Converted {len(msgs)} messages to {len(converted_msgs)} messages for Ollama"
+    )
+
     try:
-        # Call the Ollama API with the converted messages
         response = client.chat.completions.create(
             model=model_name,
             messages=converted_msgs,
-            stream=False
+            stream=False,
         )
-        
-        # Get the assistant's response
         assistant_message = response.choices[0].message.content
-        
-        # Count tokens
+
         prompt_tokens = 0
         completion_tokens = 0
-        
         if enc:
-            # Count prompt tokens
             for msg in msgs:
                 if isinstance(msg.get("content"), str):
                     prompt_tokens += len(enc.encode(msg.get("content")))
-            
-            # Count completion tokens
             completion_tokens = len(enc.encode(assistant_message))
-        
+
         return assistant_message, prompt_tokens, completion_tokens
-    
+
     except Exception as e:
         logger_instance.error(f"Error in direct Ollama chat: {e}")
-        if hasattr(e, 'body'):
+        if hasattr(e, "body"):
             logger_instance.error(f"Error details: {e.body}")
         raise
+
 
 # Helper function to print details of a single raw model response step
 def print_single_raw_response_step(step_number, raw_model_response, Colors_obj, logger_obj, indent_func, json_module):
@@ -421,71 +386,15 @@ async def main():
                     accumulated_structured_events = []
 
                     try:
-                        # Check if we're using an Ollama model
-                        if current_model_name.startswith("ollama/"):
-                            # Extract the model name without the "ollama/" prefix
-                            ollama_model_name = current_model_name.split('/')[-1]
-                            
-                            print(f"\n{Colors.HEADER}--- Using Direct Ollama Chat (bypassing Agent) ---{Colors.ENDC}")
-                            
-                            try:
-                                # Use our direct Ollama chat function
-                                assistant_message, pt, ct = await handle_ollama_chat(
-                                    ollama_model_name, 
-                                    msgs, 
-                                    logger, 
-                                    enc
-                                )
-                                
-                                # Print the response
-                                print(f"{Colors.AGENT_MESSAGE}{assistant_message}{Colors.ENDC}")
-                                
-                                # Update conversation history
-                                current_conversation_history = msgs + [{"role": "assistant", "content": assistant_message}]
-                                
-                                # Set token counts and final output
-                                final_streamed_output_text = assistant_message
-                                tt = pt + ct
-                                
-                                # Create a dummy result object with the necessary attributes
-                                class DummyResult:
-                                    def __init__(self, final_output, conversation_history):
-                                        self.final_output = final_output
-                                        self._conversation_history = conversation_history
-                                        self.usage = None
-                                    
-                                    def to_input_list(self):
-                                        return self._conversation_history
-                                    
-                                    async def stream_events(self):
-                                        # This is a dummy implementation that doesn't actually stream
-                                        # It just yields a single event with the final output
-                                        class DummyEvent:
-                                            def __init__(self, type, data=None):
-                                                self.type = type
-                                                self.data = data
-                                        
-                                        # Yield a dummy event to satisfy the async for loop
-                                        yield DummyEvent("dummy_event")
-                                        return
-                                
-                                result = DummyResult(assistant_message, current_conversation_history)
-                                
-                            except Exception as e:
-                                logger.error(f"Error in direct Ollama chat: {e}")
-                                raise
-                                
-                        else:
-                            # Use the Agent framework for non-Ollama models
-                            # Changed to run_streamed
-                            # Pass agent as a positional argument, then input and max_turns as keyword arguments
-                            result = Runner.run_streamed(
-                                agent, # Positional
-                                input=msgs, 
-                                max_turns=30
-                            )
+                        # Always use the Agent framework. update_model_and_agent_config configures
+                        # the Agent to talk to either OpenRouter or an Ollama instance.
+                        result = Runner.run_streamed(
+                            agent,
+                            input=msgs,
+                            max_turns=30,
+                        )
 
-                            print(f"\n{Colors.HEADER}--- Agent's Live Actions (Streaming) ---{Colors.ENDC}")
+                        print(f"\n{Colors.HEADER}--- Agent's Live Actions (Streaming) ---{Colors.ENDC}")
                         async for event in result.stream_events():
                             if event.type == "raw_response_event" and isinstance(event.data, ResponseTextDeltaEvent):
                                 if event.data.delta:
@@ -550,7 +459,37 @@ async def main():
                                 error_body_str = str(bre.body)
                         
                         logger.error(f"{Colors.LOG_ERROR}OpenAI API Error details (bre.body):{Colors.ENDC}\n{Colors.CODE_ERROR}{indent_multiline_text(error_body_str, '  ')}{Colors.ENDC}")
-                        raise 
+                        raise
+
+                    except openai.NotFoundError as nfe:
+                        logger.warning(
+                            f"Agent endpoints not available for {current_model_name}. Falling back to direct chat."
+                        )
+                        if current_model_name.startswith("ollama/"):
+                            ollama_model_name = current_model_name.split("/")[-1]
+                            assistant_message, pt, ct = await handle_ollama_chat(
+                                ollama_model_name,
+                                msgs,
+                                logger,
+                                enc,
+                            )
+                            final_streamed_output_text = assistant_message
+                            current_conversation_history = msgs + [{"role": "assistant", "content": assistant_message}]
+                            tt = pt + ct
+                            cost = (pt / 1000) * cli_config.PROMPT_PRICE_PER_1K + (ct / 1000) * cli_config.COMPLETION_PRICE_PER_1K
+                            total_conversation_prompt_tokens += pt
+                            total_conversation_completion_tokens += ct
+                            total_conversation_cost += cost
+                            print(f"{Colors.AGENT_MESSAGE}{assistant_message}{Colors.ENDC}")
+                            print(f"{Colors.SYSTEM_INFO}[turn usage] prompt: {pt}, completion: {ct}, total: {tt}{Colors.ENDC}")
+                            print(f"{Colors.SYSTEM_INFO}[turn cost] ${cost:.5f}{Colors.ENDC}")
+                            print(f"{Colors.SYSTEM_INFO}[total usage] prompt: {total_conversation_prompt_tokens}, completion: {total_conversation_completion_tokens}, total: {total_conversation_prompt_tokens + total_conversation_completion_tokens}{Colors.ENDC}")
+                            print(f"{Colors.SYSTEM_INFO}[total cost] ${total_conversation_cost:.5f}{Colors.ENDC}")
+                            print(f"\n{Colors.BOLD}{Colors.AGENT_PROMPT}Agent: {Colors.ENDC}")
+                            print(f"{Colors.AGENT_MESSAGE}{assistant_message}{Colors.ENDC}")
+                            continue
+                        else:
+                            raise
                     
                     current_conversation_history = result.to_input_list()
 
