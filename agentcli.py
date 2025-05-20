@@ -491,19 +491,23 @@ async def main():
                                 if event.data.delta:
                                     print(event.data.delta, end="", flush=True)
                                     final_streamed_output_text += event.data.delta
-                            elif event.type == "run_item_stream_event": # Example from docs for structured items
-                                # This is where we'd print more detailed step info
+                            elif event.type == "run_item_stream_event":
                                 streamed_step_counter += 1
-                                # print_streamed_step_details(event, streamed_step_counter, Colors, logger, indent_multiline_text, json)
-                                # For now, just a basic print:
                                 print(f"\n{Colors.SYSTEM_INFO}Streamed Item (Step {streamed_step_counter}): {event.item.type}{Colors.ENDC}")
-                                accumulated_structured_events.append(event.item) # Store for potential history
+                                accumulated_structured_events.append(event.item)
+
+                                # Check if this is a tool_call_output_item from get-library-docs
+                                if event.item.type == "tool_call_output_item" and \
+                                   hasattr(event.item, 'tool_name') and event.item.tool_name == 'get-library-docs' and \
+                                   hasattr(event.item, 'output'):
+                                    full_docs_content = event.item.output
+                                    print(f"\n{Colors.SYSTEM_INFO}---FULL_DOCS_START---{Colors.ENDC}")
+                                    print(full_docs_content)
+                                    print(f"\n{Colors.SYSTEM_INFO}---FULL_DOCS_END---{Colors.ENDC}")
+
                             elif event.type == "agent_updated_stream_event":
                                 print(f"\n{Colors.SYSTEM_INFO}Agent updated to: {event.new_agent.name}{Colors.ENDC}")
                             # Add other event type handling as needed based on documentation and testing
-                            # else:
-                                # print(f"\nDebug Event: Type: {event.type}, Data: {event.data}")
-
 
                         # After stream is complete, print a newline if text was streamed
                         if final_streamed_output_text:
